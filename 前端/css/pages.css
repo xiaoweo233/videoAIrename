@@ -1892,6 +1892,27 @@
   white-space: nowrap;
 }
 
+/* 「自动保存」是设置页里唯一常驻的开关。放在顶栏是因为保存栏只在有改动时
+   浮出来两秒 —— 把开关唯一的入口藏在那里，等于关不掉它。 */
+.save-auto__label {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.save-auto__sep {
+  width: 1px;
+  height: 13px;
+  margin: 0 6px;
+  background: var(--line-strong);
+}
+
+@media (max-width: 700px) {
+  .save-auto__label,
+  .save-auto__sep {
+    display: none;
+  }
+}
+
 .settings-panel {
   display: flex;
   flex-direction: column;

@@ -437,6 +437,31 @@
   transform: translateY(-50%) translateX(17px);
 }
 
+/* 小号开关：保存栏、设置页顶栏这类窄条用。数值按「左右留白相等」算：
+   内宽 32 = 左 2 + 钮 14 + 位移 14 + 右 2。 */
+.switch--sm {
+  width: 34px;
+  height: 20px;
+}
+
+.switch--sm span {
+  left: 2px;
+  width: 14px;
+  height: 14px;
+}
+
+.switch--sm:hover span {
+  width: 15px;
+}
+
+.switch--sm[aria-checked="true"] span {
+  transform: translateY(-50%) translateX(14px);
+}
+
+.switch--sm[aria-checked="true"]:hover span {
+  transform: translateY(-50%) translateX(13px);
+}
+
 /* ---------- Inputs ---------- */
 
 .input,
@@ -913,9 +938,31 @@
   text-overflow: ellipsis;
 }
 
+.save-bar__auto {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-soft);
+}
+
+.save-bar__auto-label {
+  color: var(--text-4);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 @media (max-width: 900px) {
   .save-bar {
     bottom: 92px;
+  }
+}
+
+/* 窄屏先丢掉「自动保存」这四个字，开关本身留着（有 aria-label，读屏仍能读） */
+@media (max-width: 620px) {
+  .save-bar__auto-label {
+    display: none;
   }
 }
 

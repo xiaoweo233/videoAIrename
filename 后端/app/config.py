@@ -38,6 +38,13 @@ DEFAULT_PROMPT = (
 
 # 默认配置。所有键都必须在设置页有对应控件（或明确标注为内部项）。
 DEFAULT_CONFIG: dict[str, Any] = {
+    # 界面行为。放在配置里而不是 localStorage，是因为「后端持有配置」是本项目的
+    # 唯一事实来源：换个浏览器打开、或者直接手改 config.json，行为应该一致。
+    "ui": {
+        # 设置页改动后自动写入 config.json（停顿约 0.7 秒再写，不是每个按键都写）。
+        # 关掉则回到「改完点保存/Ctrl+S」的手动模式。
+        "auto_save": True,
+    },
     "input": {
         "recursive": True,          # 递归子文件夹
     },

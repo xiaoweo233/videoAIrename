@@ -609,7 +609,12 @@
                 <h2 data-settings-title>引擎与输入</h2>
                 <p data-settings-desc>管理素材目录、转写与硬件加速。</p>
               </div>
-              <span class="settings-head__hint"><kbd>Ctrl</kbd><kbd>S</kbd> 保存</span>
+              <div class="settings-head__hint">
+                <span class="save-auto__label">自动保存</span>
+                <button class="switch switch--sm" type="button" role="switch" aria-checked="true" aria-label="自动保存" data-cfg="ui.auto_save" data-cfg-type="bool"><span></span></button>
+                <span class="save-auto__sep"></span>
+                <span><kbd>Ctrl</kbd><kbd>S</kbd> 保存</span>
+              </div>
             </div>
 
             <section class="settings-panel is-active reveal" style="--i:5" data-settings-panel="engine">
@@ -1342,7 +1347,7 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>镜像预设</strong><small>点选后记得保存</small></div>
+                  <div class="setting-row__label"><strong>镜像预设</strong><small data-save-note>点选后记得保存</small></div>
                   <div class="setting-row__control"><div class="chip-row" data-pip-presets></div></div>
                 </div>
                 <div class="setting-row">
@@ -1352,7 +1357,7 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>镜像预设</strong><small>点选后记得保存</small></div>
+                  <div class="setting-row__label"><strong>镜像预设</strong><small data-save-note>点选后记得保存</small></div>
                   <div class="setting-row__control"><div class="chip-row" data-hf-presets></div></div>
                 </div>
               </div>
@@ -1381,8 +1386,12 @@
     <div class="save-bar__inner">
       <span class="save-bar__dot"></span>
       <div class="save-bar__text">
-        <strong>有未保存的修改</strong>
-        <small>保存后会写入 config.json，下次启动自动生效</small>
+        <strong data-save-title>有未保存的修改</strong>
+        <small data-save-sub>保存后会写入 config.json，下次启动自动生效</small>
+      </div>
+      <div class="save-bar__auto">
+        <span class="save-bar__auto-label">自动保存</span>
+        <button class="switch switch--sm" type="button" role="switch" aria-checked="true" aria-label="自动保存" data-cfg="ui.auto_save" data-cfg-type="bool"><span></span></button>
       </div>
       <button class="btn btn--ghost btn--sm" type="button" data-reset-settings>重置</button>
       <button class="btn btn--primary btn--sm" type="button" data-save-settings><span>保存修改</span></button>

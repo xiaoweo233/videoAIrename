@@ -28,6 +28,11 @@
   var config = null;
   var defaults = null;
 
+  var AUTO_SAVE_DELAY = 700;      // 停顿这么久就算「改完了」；再短会在连续输入时反复写盘
+  var SAVED_FLASH = 1900;         // 「已自动保存」停留多久
+  var autoSaveTimer = 0;
+  var barTimer = 0;
+
   function q(sel) {
     return els[sel] || (els[sel] = V.$(sel));
   }
@@ -35,6 +40,27 @@
   function api() { return V.api; }
 
   function toast(title, message, tone) { V.toast(title, message, tone); }
+
+  /**
+   * 自动保存是开还是关。
+   *
+   * 直接读控件而不是读 config：配置要等一次网络往返才到，而 HTML 里写死的
+   * aria-checked 就是出厂默认值（默认开）。这样首屏立刻就是正确行为。
+   */
+  function autoSaveOn() {
+    var el = V.$('[data-cfg="ui.auto_save"]');
+    return !!el && el.getAttribute('aria-checked') === 'true';
+  }
+
+  /** 提示文案跟着开关走：开着还写「记得点保存」是自相矛盾的。 */
+  function saveHint() {
+    return autoSaveOn() ? '自动保存已开启，稍后写入配置。' : '记得点「保存修改」写入配置。';
+  }
+
+  function timeNow() {
+    var d = new Date();
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
 
   /* ---------------- 路径读写 ---------------- */
 
@@ -168,6 +194,20 @@
     });
   }
 
+  /**
+   * 同一个 data-cfg 可能有两个控件（「自动保存」在设置页顶栏和保存栏各一个）。
+   * 点其中一个后必须立刻把另一个摆正，否则 collect() 会按 DOM 顺序读到旧值 ——
+   * 后写的赢，用户刚关掉的开关会被另一个控件改回去。
+   */
+  function syncMirrors(el) {
+    var key = el.dataset.cfg;
+    if (!key) return;
+    var value = readControl(el);
+    V.$$('[data-cfg="' + key + '"]').forEach(function (other) {
+      if (other !== el) writeControl(other, value);
+    });
+  }
+
   /* ---------------- 填表 / 收表 ---------------- */
 
   function applyToForm(cfg) {
@@ -178,6 +218,7 @@
     renderPrompts();
     renderNamingPreview();
     syncModelPicker();
+    renderSaveNotes();          // 必须在控件写完值之后读 autoSaveOn()
   }
 
   function collect() {
@@ -191,19 +232,89 @@
     return patch;
   }
 
-  /* ---------------- 脏标记 ---------------- */
+  /* ---------------- 脏标记与保存栏 ----------------
+   *
+   * 保存栏有三种形态：
+   *   dirty  —— 有未保存的改动（手动模式下会一直挂着）
+   *   saved  —— 刚自动落盘，露一下就走
+   *   hidden —— 收起来
+   * 手动点「保存修改」成功时用 toast 反馈，不再占用保存栏。
+   */
+
+  function renderSaveBar(mode) {
+    var bar = q('[data-save-bar]');
+    if (!bar) return;
+
+    if (barTimer) { window.clearTimeout(barTimer); barTimer = 0; }
+
+    if (mode === 'hidden') {
+      bar.classList.remove('is-visible');
+      return;
+    }
+
+    var title = V.$('[data-save-title]', bar);
+    var sub = V.$('[data-save-sub]', bar);
+
+    if (mode === 'saved') {
+      if (title) title.textContent = autoSaveOn() ? '已自动保存' : '已保存';
+      if (sub) sub.textContent = '写入 config.json · ' + timeNow();
+      bar.classList.add('is-visible');
+      barTimer = window.setTimeout(function () {
+        barTimer = 0;
+        renderSaveBar(dirty ? 'dirty' : 'hidden');
+      }, SAVED_FLASH);
+      return;
+    }
+
+    var live = !!(api() && api().isLive());
+    if (title) title.textContent = live ? '有未保存的修改' : '后端未连接';
+    if (sub) {
+      if (!live) {
+        sub.textContent = '改动只留在当前页面；连上后端后才能写入 config.json';
+      } else {
+        sub.textContent = autoSaveOn()
+          ? '自动保存已开启，停止改动后立即写入 config.json'
+          : '保存后会写入 config.json，下次启动自动生效';
+      }
+    }
+    bar.classList.add('is-visible');
+  }
 
   function setDirty(on) {
-    if (dirty === on) return;
     dirty = on;
-    var bar = q('[data-save-bar]');
-    if (bar) bar.classList.toggle('is-visible', on);
+    renderSaveBar(on ? 'dirty' : 'hidden');
+  }
+
+  /** 把改动排进自动保存队列；关掉开关或离线时不排。 */
+  function scheduleAutoSave() {
+    cancelAutoSave();
+    if (!autoSaveOn()) return;
+    var client = api();
+    if (!client || !client.isLive()) return;      // 离线时别定时刷「后端未连接」
+    autoSaveTimer = window.setTimeout(function () {
+      autoSaveTimer = 0;
+      if (!dirty || busy) return;
+      save({ auto: true });
+    }, AUTO_SAVE_DELAY);
+  }
+
+  function cancelAutoSave() {
+    if (autoSaveTimer) { window.clearTimeout(autoSaveTimer); autoSaveTimer = 0; }
   }
 
   function markDirty() {
     setDirty(true);
     renderNamingPreview();
     renderRestartHint();
+    scheduleAutoSave();
+  }
+
+  /** 文案跟着「自动保存」走，别的角落别再说「记得保存」。 */
+  function renderSaveNotes() {
+    var on = autoSaveOn();
+    V.$$('[data-save-note]').forEach(function (el) {
+      el.textContent = on ? '点选后自动保存' : '点选后记得保存';
+    });
   }
 
   /* ---------------- 拉取与保存 ---------------- */
@@ -226,13 +337,20 @@
     });
   }
 
-  function save() {
+  function save(opts) {
+    opts = opts || {};
+    var auto = !!opts.auto;
+
     var client = api();
     if (!client || !client.isLive()) {
+      // 自动保存撞上断线就安静放弃：改动还在表单里，连上后手动保存即可
+      if (auto) { renderSaveBar('dirty'); return; }
       offlineNotice();
       return;
     }
     if (busy) return;
+
+    cancelAutoSave();
     busy = true;
     var btn = q('[data-save-settings]');
     if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
@@ -243,13 +361,20 @@
       applyToForm(config);
       setDirty(false);
       updateRestartBaseline();
-      if (result.restart_required && result.restart_required.length) {
+      if (auto) {
+        // 自动保存不弹 toast：连着改十项就会弹十次。用保存栏报一下时间就够。
+        renderSaveBar('saved');
+      } else if (result.restart_required && result.restart_required.length) {
         toast('已保存', '「' + result.restart_required.join('、') + '」需要重启后端才生效。', 'warn');
       } else {
         toast('已保存', '变更 ' + (result.changed || []).length + ' 项，立即生效。', 'success');
       }
     }).catch(function (err) {
-      toast('保存失败', client.errorText(err), 'error');
+      // 自动保存失败必须说出来，否则用户以为已经存进去了
+      toast(auto ? '自动保存失败' : '保存失败', client.errorText(err), 'error');
+      if (auto) {
+        renderSaveBar('dirty');   // 改动还在，保存栏留着让用户手动点
+      }
     }).then(function () {
       busy = false;
       if (btn) { btn.disabled = false; btn.classList.remove('is-loading'); }
@@ -299,7 +424,7 @@
     box.value = value;
     markDirty();
     renderPrompts();
-    toast('已恢复默认提示词', '记得点「保存修改」写入配置。', 'info');
+    toast('已恢复默认提示词', saveHint(), 'info');
   }
 
   /* ---------------- 命名预览 ---------------- */
@@ -970,13 +1095,17 @@
       V.on(btn, 'click', function () { showTab(btn.dataset.settingsTab); });
     });
 
-    // 所有声明式控件：改动即标脏
+    // 所有声明式控件：改动即标脏（自动保存开着时顺带排一次落盘）
     eachControl(function (el) {
       var isRange = (el.getAttribute('type') || '').toLowerCase() === 'range';
       var handler = function () {
         if (isRange) syncSlider(el);
         if (el.dataset.cfg === 'ai.model') syncModelPicker();
+        syncMirrors(el);
         markDirty();
+        // 「自动保存」这个开关两个方向都得立刻落盘：关掉它时定时器已经不排了，
+        // 若等用户手动保存，下次启动它还是开着的 —— 等于关了个假的。
+        if (el.dataset.cfg === 'ui.auto_save') save({ auto: true });
       };
       // 文本框与滑块用 input（实时），下拉框用 change
       var live = isSwitch(el) || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
@@ -985,7 +1114,7 @@
       if (isSwitch(el)) {
         V.on(el, 'click', function () {
           el.setAttribute('aria-checked', el.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
-          markDirty();
+          handler();
         });
       }
     });
@@ -1030,7 +1159,7 @@
       });
     });
 
-    V.on(q('[data-save-settings]'), 'click', save);
+    V.on(q('[data-save-settings]'), 'click', function () { save(); });
     V.on(q('[data-reset-settings]'), 'click', resetAll);
 
     // 保存栏
@@ -1044,6 +1173,7 @@
       if (e.key === 'Escape' && dirty) {
         var bar = q('[data-save-bar]');
         if (bar && bar.classList.contains('is-visible')) {
+          cancelAutoSave();     // 否则刚撤销的改动会被定时器又写回去
           setDirty(false);
           pull(true);
         }
@@ -1069,7 +1199,7 @@
         if (input) {
           input.value = chip.dataset.value;
           markDirty();
-          toast('已填入镜像', '记得点「保存修改」写入配置。', 'info');
+          toast('已填入镜像', saveHint(), 'info');
         }
         return;
       }
@@ -1122,6 +1252,7 @@
     });
 
     renderNamingPreview();
+    renderSaveNotes();          // 首屏先按 HTML 里的默认值把文案摆正，不等配置回来
     renderServerInfo(state.server);
     renderServices(state.services);
 
@@ -1138,6 +1269,12 @@
       if (el) el.disabled = !editable;
     });
     if (editable) loadInitial();
+    // 断线/重连时保存栏的措辞会变（「后端未连接」↔「有未保存的修改」），
+    // 重连后也把离线期间攒下的改动重新排进自动保存。
+    if (dirty) {
+      renderSaveBar('dirty');
+      if (editable) scheduleAutoSave();
+    }
   }
 
   V.onReady(init);
