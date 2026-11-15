@@ -683,7 +683,7 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>并行转写数</strong><small>本地模型会串行占用显卡，这里主要影响远程接口</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="16" step="1" aria-label="并行转写数" data-cfg="whisper.workers" data-cfg-type="number"><output class="mono">4</output>
+                    <input class="range" type="range" min="1" max="16" step="1" aria-label="并行转写数" data-cfg="whisper.workers" data-cfg-type="number" value="4"><output class="mono">4</output>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -783,7 +783,7 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>单句最大字数</strong><small>超过就切句，字幕更好读</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="8" max="80" step="1" aria-label="单句最大字数" data-cfg="whisper.api.max_chars" data-cfg-type="number" data-suffix=" 字"><output class="mono">20 字</output>
+                    <input class="range" type="range" min="8" max="80" step="1" aria-label="单句最大字数" data-cfg="whisper.api.max_chars" data-cfg-type="number" data-suffix=" 字" value="20"><output class="mono">20 字</output>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -802,19 +802,19 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>每个视频最多抽几帧</strong><small>帧数越多看得越全，但显存与耗时线性上升</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="30" step="1" aria-label="最多抽帧数" data-cfg="frames.max_keyframes" data-cfg-type="number" data-suffix=" 帧"><output class="mono">10 帧</output>
+                    <input class="range" type="range" min="1" max="30" step="1" aria-label="最多抽帧数" data-cfg="frames.max_keyframes" data-cfg-type="number" data-suffix=" 帧" value="4"><output class="mono">4 帧</output>
                   </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>缩放过后的最长边</strong><small>越大越清晰，显存也越吃紧</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="256" max="1536" step="32" aria-label="缩放过后的最长边" data-cfg="frames.max_side" data-cfg-type="number" data-suffix=" px"><output class="mono">640 px</output>
+                    <input class="range" type="range" min="256" max="1536" step="32" aria-label="缩放过后的最长边" data-cfg="frames.max_side" data-cfg-type="number" data-suffix=" px" value="512"><output class="mono">512 px</output>
                   </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>抽帧并发数</strong><small>同时跑几个 ffmpeg，机械硬盘上别开太大</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="16" step="1" aria-label="抽帧并发数" data-cfg="frames.workers" data-cfg-type="number" data-suffix=" 路"><output class="mono">8 路</output>
+                    <input class="range" type="range" min="1" max="16" step="1" aria-label="抽帧并发数" data-cfg="frames.workers" data-cfg-type="number" data-suffix=" 路" value="8"><output class="mono">8 路</output>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -981,7 +981,7 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>失败重试次数</strong><small>4xx 不重试，网络抖动与 5xx 才会退避重试</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="0" max="10" step="1" aria-label="失败重试次数" data-cfg="ai.retry_times" data-cfg-type="number" data-suffix=" 次"><output class="mono">2 次</output>
+                    <input class="range" type="range" min="0" max="10" step="1" aria-label="失败重试次数" data-cfg="ai.retry_times" data-cfg-type="number" data-suffix=" 次" value="2"><output class="mono">2 次</output>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -993,13 +993,13 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>温度</strong><small>越低越稳定可复现，越高越发散</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="0" max="2" step="0.05" aria-label="温度" data-cfg="ai.temperature" data-cfg-type="number" data-decimals="2"><output class="mono">0.60</output>
+                    <input class="range" type="range" min="0" max="2" step="0.05" aria-label="温度" data-cfg="ai.temperature" data-cfg-type="number" data-decimals="2" value="0.6"><output class="mono">0.60</output>
                   </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>Top P</strong><small>采样范围，一般 0.8 左右</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="0.05" max="1" step="0.05" aria-label="Top P" data-cfg="ai.top_p" data-cfg-type="number" data-decimals="2"><output class="mono">0.80</output>
+                    <input class="range" type="range" min="0.05" max="1" step="0.05" aria-label="Top P" data-cfg="ai.top_p" data-cfg-type="number" data-decimals="2" value="0.8"><output class="mono">0.80</output>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -1082,13 +1082,13 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>并发槽数</strong><small>每个槽都按上下文长度预留显存。1 最省显存，改完要重启服务</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="8" step="1" aria-label="并发槽数" data-cfg="services.llama.parallel" data-cfg-type="number" data-suffix=" 槽"><output class="mono">1 槽</output>
+                    <input class="range" type="range" min="1" max="8" step="1" aria-label="并发槽数" data-cfg="services.llama.parallel" data-cfg-type="number" data-suffix=" 槽" value="1"><output class="mono">1 槽</output>
                   </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>卸载到显卡的层数</strong><small>99 表示全部交给显卡；显存不够就调小</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="0" max="99" step="1" aria-label="卸载到显卡的层数" data-cfg="services.llama.gpu_layers" data-cfg-type="number" data-suffix=" 层"><output class="mono">99 层</output>
+                    <input class="range" type="range" min="0" max="99" step="1" aria-label="卸载到显卡的层数" data-cfg="services.llama.gpu_layers" data-cfg-type="number" data-suffix=" 层" value="99"><output class="mono">99 层</output>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -1234,7 +1234,7 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>同时处理的视频数</strong><small>每个视频都要占一份显存，12 GB 卡建议 2–4</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="16" step="1" aria-label="同时处理的视频数" data-cfg="runtime.ai_workers" data-cfg-type="number" data-suffix=" 个"><output class="mono">4 个</output>
+                    <input class="range" type="range" min="1" max="16" step="1" aria-label="同时处理的视频数" data-cfg="runtime.ai_workers" data-cfg-type="number" data-suffix=" 个" value="2"><output class="mono">2 个</output>
                   </div>
                 </div>
                 <div class="setting-row">

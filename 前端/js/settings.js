@@ -93,6 +93,34 @@
     return raw;
   }
 
+  /**
+   * 滑块的「已填充轨道」靠 CSS 变量 --fill 画，右边的 <output> 靠 data-suffix 拼单位。
+   * 这两样浏览器不会自动做：不手动同步的话，拖动时圆点走了、紫色填充和数字都留在原地。
+   */
+  function syncSlider(el) {
+    if (!el || (el.getAttribute('type') || '').toLowerCase() !== 'range') return;
+
+    var min = Number(el.getAttribute('min'));
+    var max = Number(el.getAttribute('max'));
+    var value = Number(el.value);
+    if (!isFinite(min)) min = 0;
+    if (!isFinite(max) || max === min) max = min + 1;
+    if (!isFinite(value)) value = min;
+
+    var pct = Math.min(100, Math.max(0, (value - min) / (max - min) * 100));
+    pct = Math.round(pct * 100) / 100;           // 别让内联样式出现 37.93103448275862%
+    el.style.setProperty('--fill', pct + '%');
+    // 纵向滑块用 bottom，横向用 left；本项目都是横向
+    var out = el.parentElement ? el.parentElement.querySelector('output') : null;
+    if (out) {
+      // data-decimals 的滑块要固定小数位（温度 0.6 显示成 0.60）
+      var text = el.dataset.decimals
+        ? Number(el.value).toFixed(Number(el.dataset.decimals))
+        : el.value;
+      out.textContent = text + (el.dataset.suffix || '');
+    }
+  }
+
   function writeControl(el, value) {
     var type = controlType(el);
     if (type === 'bool') {
@@ -130,6 +158,7 @@
     }
 
     el.value = String(value);
+    syncSlider(el);
   }
 
   function eachControl(fn) {
@@ -906,10 +935,15 @@
 
     // 所有声明式控件：改动即标脏
     eachControl(function (el) {
-      var handler = function () { markDirty(); };
+      var isRange = (el.getAttribute('type') || '').toLowerCase() === 'range';
+      var handler = function () {
+        if (isRange) syncSlider(el);
+        markDirty();
+      };
       // 文本框与滑块用 input（实时），下拉框用 change
       var live = isSwitch(el) || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
       V.on(el, live ? 'input' : 'change', handler);
+      if (isRange) syncSlider(el);          // 首屏先按 HTML 里的值摆正
       if (isSwitch(el)) {
         V.on(el, 'click', function () {
           el.setAttribute('aria-checked', el.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
