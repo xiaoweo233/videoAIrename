@@ -1,0 +1,30 @@
+# VAIR 后端依赖
+#
+# 安装方式（推荐，装进 后端/libs/，不污染系统环境）：
+#   python -m pip install --target 后端/libs -r 后端/requirements.txt
+# 或者先启动 run.py，它会自动把缺失项装到 libs/。
+#
+# 国内请加镜像：
+#   -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# ---------- 启动必需 ----------
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+pydantic>=2.5
+python-multipart>=0.0.9
+
+# ---------- 按需：本地语音转写 ----------
+# whisper.backend=local，或 auto 模式下远程不可用时走本地。
+faster-whisper>=1.0
+tqdm>=4.66
+
+# ---------- 按需：远程转写协议 gradio ----------
+# 调用 Qwen3-ASR 这类 Gradio 服务必需；用 openai 协议可不装。
+gradio_client>=1.0
+
+# ---------- 按需：Windows + NVIDIA 的 CUDA 运行库 ----------
+# ctranslate2 缺 cublas64_12.dll 时不会报错而是**挂起**，所以显卡机器建议装上。
+# 仅 Windows 需要；纯 CPU 转写可省略。
+nvidia-cublas-cu12>=12.4; sys_platform == "win32"
+nvidia-cudnn-cu12>=9.1; sys_platform == "win32"

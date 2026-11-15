@@ -1,13 +1,47 @@
-# 大体积第三方可执行文件（本地依赖，不入库）
+# ---- 大体积第三方依赖（本地放置，不入库）----
+# ffmpeg / exiftool：直接放进仓库目录即可被后端自动发现
 ffmpeg/
 exiftool/
 
-# 调试与截图产物
+# AI 运行时与模型：约 10 GB，用「补齐 AI 依赖与模型」下载或自行放置
+AI/
+
+# Python 依赖（零污染安装在 后端/libs/，不写系统环境）
+后端/libs/
+
+# ---- 运行时产物 ----
+# 用户配置（含 API 密钥，绝不入库；模板见 后端/config.example.json）
+config.json
+data/
+logs/
+.cache/
+
+# ---- 素材视频（本地测试用，体积大，不入库）----
+视频/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.flv
+*.wmv
+*.webm
+
+# ---- 调试与截图产物 ----
 .shots/
 .tools/
 
-# 系统与编辑器杂项
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# ---- 系统与编辑器杂项 ----
 Thumbs.db
 Desktop.ini
 .DS_Store
 *.log
+.idea/
+.vscode/
