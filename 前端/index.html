@@ -963,13 +963,14 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>模型名</strong><small>点「拉取模型」可列出服务端已加载的模型</small></div>
-                  <div class="setting-row__control setting-row__control--wide">
+                  <div class="setting-row__label"><strong>模型名</strong><small>点「拉取模型」列出服务端已加载的模型，再点一下就能选</small></div>
+                  <div class="setting-row__control setting-row__control--wide setting-row__control--stack">
                     <div class="input-with-action">
                       <input class="input mono" type="text" aria-label="AI 模型名" data-cfg="ai.model" list="ai-model-list" placeholder="Qwen3.8-9B">
                       <button class="btn btn--ghost btn--sm" type="button" data-action="ai-models">拉取模型</button>
                     </div>
                     <datalist id="ai-model-list" data-ai-model-list></datalist>
+                    <div class="model-picker" data-ai-model-picker hidden></div>
                   </div>
                 </div>
                 <div class="setting-row">

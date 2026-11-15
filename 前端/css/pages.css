@@ -2316,6 +2316,49 @@
   color: var(--violet-2);
 }
 
+/* ---- 模型选择列表（「拉取模型」后出现的可点标签） ---- */
+
+.setting-row__control--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.model-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-picker__item {
+  max-width: 100%;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: all 0.2s var(--ease-out);
+}
+
+.model-picker__item:hover {
+  border-color: var(--violet-line);
+  color: var(--text);
+}
+
+.model-picker__item.is-active {
+  border-color: var(--violet-line);
+  background: var(--violet-soft);
+  color: var(--violet-2);
+}
+
 /* ---- 测试结果提示 ---- */
 .test-out {
   margin: 0 22px 16px;

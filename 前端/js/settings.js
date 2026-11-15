@@ -177,6 +177,7 @@
     renderGlossary(cfg && cfg.glossary);
     renderPrompts();
     renderNamingPreview();
+    syncModelPicker();
   }
 
   function collect() {
@@ -832,6 +833,38 @@
     });
   }
 
+  /**
+   * 「拉取模型」之后把服务端的模型列成可点的标签。
+   * <datalist> 只有输入时才弹，用户根本发现不了；这里直接铺开，点一下就填进去。
+   */
+  function renderModelPicker(models) {
+    var box = q('[data-ai-model-picker]');
+    if (!box) return;
+    var list = (models || []).filter(Boolean);
+    if (!list.length) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    box.hidden = false;
+    box.innerHTML = list.map(function (name) {
+      return '<button type="button" class="model-picker__item" data-model-pick="' +
+        V.escapeHTML(name) + '" title="' + V.escapeHTML(name) + '">' +
+        V.escapeHTML(name) + '</button>';
+    }).join('');
+    syncModelPicker();
+  }
+
+  function syncModelPicker() {
+    var box = q('[data-ai-model-picker]');
+    var input = V.$('[data-cfg="ai.model"]');
+    if (!box || !input) return;
+    var current = input.value;
+    V.$$('[data-model-pick]', box).forEach(function (btn) {
+      btn.classList.toggle('is-active', btn.dataset.modelPick === current);
+    });
+  }
+
   function fetchModels() {
     var client = api();
     if (!client || !client.isLive()) { offlineNotice(); return; }
@@ -844,9 +877,11 @@
           return '<option value="' + V.escapeHTML(name) + '"></option>';
         }).join('');
       }
+      renderModelPicker(result.models);
       var input = V.$('[data-cfg="ai.model"]');
       if (input && !input.value && result.models && result.models.length) {
         input.value = result.models[0];
+        syncModelPicker();
         markDirty();
       }
     }).catch(function (err) {
@@ -907,6 +942,8 @@
     if ((location.hash || '').indexOf('#settings') === 0) {
       history.replaceState(null, '', '#settings/' + name);
     }
+    // 通知侧边栏二级菜单高亮（不能复用 settings:tab，那会绕回来递归）
+    V.bus.emit('settings:tab:change', name);
   }
 
   /* ---------------- 事件接线 ---------------- */
@@ -938,6 +975,7 @@
       var isRange = (el.getAttribute('type') || '').toLowerCase() === 'range';
       var handler = function () {
         if (isRange) syncSlider(el);
+        if (el.dataset.cfg === 'ai.model') syncModelPicker();
         markDirty();
       };
       // 文本框与滑块用 input（实时），下拉框用 change
@@ -967,6 +1005,19 @@
     V.$$('[data-prompt]').forEach(function (box) {
       V.on(box, 'input', function () { renderPrompts(); });
     });
+
+    // 模型标签：点一下即选中
+    var picker = q('[data-ai-model-picker]');
+    if (picker) {
+      V.on(picker, 'click', function (e) {
+        var btn = e.target && e.target.closest ? e.target.closest('[data-model-pick]') : null;
+        if (!btn) return;
+        var input = V.$('[data-cfg="ai.model"]');
+        if (input) input.value = btn.dataset.modelPick;
+        syncModelPicker();
+        markDirty();
+      });
+    }
 
     // 页码头部按钮
     V.on(q('[data-open-config]'), 'click', function () {

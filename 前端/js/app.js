@@ -363,6 +363,51 @@
     btn.setAttribute('aria-label', text.title);
   }
 
+  /* ---------------- 设置二级菜单 ---------------- */
+
+  // 侧边栏「设置」下面那组分类。HTML/CSS 早就有，缺的是把点击接上：
+  // 点父项展开/收起，点子项跳到对应 tab，切页时自动开合。
+  function setSubnav(open) {
+    var parent = VAIR.$('.nav__item--parent');
+    var box = VAIR.$('.subnav');
+    if (!parent || !box) return;
+    parent.setAttribute('aria-expanded', open ? 'true' : 'false');
+    box.classList.toggle('is-open', open);
+  }
+
+  function markSubnav(tab) {
+    VAIR.$$('[data-subnav]').forEach(function (item) {
+      if (!item.dataset.subnav) return;            // 容器本身没有值，跳过
+      var active = item.dataset.subnav === tab;
+      item.classList.toggle('is-active', active);
+      if (active) item.setAttribute('aria-current', 'true');
+      else item.removeAttribute('aria-current');
+    });
+  }
+
+  function initSubnav() {
+    VAIR.$$('[data-subnav]').forEach(function (item) {
+      if (!item.dataset.subnav) return;
+      VAIR.on(item, 'click', function () {
+        VAIR.navigate('settings');
+        VAIR.bus.emit('settings:tab', item.dataset.subnav);
+        setSubnav(true);
+      });
+    });
+
+    // 已在设置页时再点「设置」= 开合二级菜单
+    VAIR.bus.on('settings:toggle', function () {
+      var box = VAIR.$('.subnav');
+      setSubnav(!(box && box.classList.contains('is-open')));
+    });
+    VAIR.bus.on('settings:tab:change', markSubnav);
+    VAIR.bus.on('view:change', function (view) {
+      setSubnav(view === 'settings');
+    });
+
+    setSubnav(VAIR.state.view === 'settings');
+  }
+
   /* ---------------- Global wiring ---------------- */
 
   function initGlobal() {
@@ -503,6 +548,7 @@
 
   function boot() {
     initGlobal();
+    initSubnav();
     VAIR.bus.on('conn:change', renderConn);
     renderConn();
     readyFns.forEach(function (fn) {
