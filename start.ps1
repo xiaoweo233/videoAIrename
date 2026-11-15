@@ -40,12 +40,12 @@ $PyMirrors = @(
   "https://mirrors.huaweicloud.com/python/$PyVersion/$ZipName",
   "https://mirrors.aliyun.com/python-release/windows/$ZipName"
 )
-# get-pip.py 是官方引导脚本（自带 pip 的 wheel），装完立刻改用清华 pip 镜像。
-# 顺序上官方在前：阿里云那份镜像的 get-pip.py 是旧版，里面捆的 pip 还要 distutils，
-# 而 3.12 已经删掉 distutils 了 —— 拿它跑会直接 ModuleNotFoundError，白等一场。
-$PipMirrors = @(
-  'https://bootstrap.pypa.io/get-pip.py',
-  'https://mirrors.aliyun.com/pypi/get-pip.py'
+# 官方 get-pip.py 优先；若它的下载不可用，就直接从国内镜像下载 pip wheel。
+# 不能退回阿里云的 get-pip.py：它捆绑的旧 pip 依赖 Python 3.12 已移除的 distutils。
+$PipMirrors = @('https://bootstrap.pypa.io/get-pip.py')
+$PipWheelIndexes = @(
+  'https://pypi.tuna.tsinghua.edu.cn/simple/pip/',
+  'https://mirrors.aliyun.com/pypi/simple/pip/'
 )
 $PipIndex = 'https://pypi.tuna.tsinghua.edu.cn/simple'
 
@@ -161,19 +161,70 @@ function Install-PortablePython {
   }
 
   if (-not (Install-Pip)) {
-    Bad 'pip 没装上，依赖也就装不进去（后面 run.py 装依赖要用它）。'
-    Info "可以手动补：下载 https://bootstrap.pypa.io/get-pip.py ，然后"
-    Info "  `"$PyExe`" get-pip.py"
+    Warn 'pip 暂时没装上。仍会启动本机诊断页，并在页面说明如何修复。'
     return $false
   }
   return $true
 }
 
-# 装 pip。候选脚本逐个试，每个都跑一遍再用 `python -m pip --version` 验真身 ——
-# 光看下载成功没用，旧版 get-pip.py 在新 Python 上是会当场报错的。
+# 先验 pip 是否已经能用（解压到一半 / 上次下载中断时可能缺 pip）。
+function Test-Pip {
+  if (-not (Test-Path -LiteralPath $PyExe -PathType Leaf)) { return $false }
+  # 先把退出码置为失败：命令根本不存在时 PowerShell 不会更新 $LASTEXITCODE，
+  # 留着上一次的值会把「没跑起来」误判成「pip 可用」。
+  $global:LASTEXITCODE = 1
+  & $PyExe -m pip --version 2>$null | Out-Null
+  return ($LASTEXITCODE -eq 0)
+}
+
+# 下载 pip wheel（标准 zip 格式），从国内 simple 索引筛出 >=24 版本，
+# 按索引提供的 SHA-256 校验后才解压到项目内，不执行下载的代码。
+function Install-PipWheel {
+  foreach ($index in $PipWheelIndexes) {
+    try {
+      $page = (Invoke-WebRequest -Uri $index -UseBasicParsing -TimeoutSec 30).Content
+      $matches_ = [regex]::Matches($page, 'href=["''][^"'']*pip-(\d+)\.(\d+)(?:\.(\d+))?-py3-none-any\.whl#sha256=[0-9a-f]{64}["'']', 'IgnoreCase')
+      $best = $null
+      foreach ($match in $matches_) {
+        $version = [version]::new([int]$match.Groups[1].Value, [int]$match.Groups[2].Value,
+                                  $(if ($match.Groups[3].Success) { [int]$match.Groups[3].Value } else { 0 }))
+        if ($version.Major -ge 24 -and (!$best -or $version -gt $best.Version)) {
+          $href = $match.Value.Substring(6, $match.Value.Length - 7)
+          $best = @{ Version = $version; Href = $href }
+        }
+      }
+      if (-not $best) { throw '镜像页里找不到兼容 Python 3.12 的 pip wheel' }
+      $parts = $best.Href -split '#sha256='
+      $wheelUrl = ([Uri]::new([Uri]$index, $parts[0])).AbsoluteUri
+      $wheel = Join-Path $env:TEMP ("vair-pip-$($best.Version).whl")
+      Info "  国内镜像：$index（pip $($best.Version)）"
+      if (-not (Get-File $wheelUrl $wheel)) { continue }
+      $hash = (Get-FileHash -LiteralPath $wheel -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($hash -ne $parts[1].ToLowerInvariant()) {
+        Remove-Item -LiteralPath $wheel -Force -ErrorAction SilentlyContinue
+        throw 'pip wheel 校验失败'
+      }
+      $site = Join-Path $PyDir 'Lib\site-packages'
+      New-Item -ItemType Directory -Force -Path $site | Out-Null
+      # Expand-Archive 只接受 .zip 后缀；先复制到临时 zip 再展开。
+      $zipWheel = "$wheel.zip"
+      Copy-Item -LiteralPath $wheel -Destination $zipWheel -Force
+      try { Expand-Archive -LiteralPath $zipWheel -DestinationPath $site -Force }
+      finally {
+        Remove-Item -LiteralPath $zipWheel, $wheel -Force -ErrorAction SilentlyContinue
+      }
+      if (Test-Pip) { return $true }
+    } catch {
+      Warn "pip wheel 备援失败：$($_.Exception.Message)"
+    }
+  }
+  return $false
+}
+
 function Install-Pip {
+  if (Test-Pip) { return $true }
   Write-Host ''
-  Info '正在装 pip（只装进项目里的便携版 Python，系统里什么都不动）…'
+  Info '正在补 pip（只装进项目里的便携版 Python）…'
   $env:PIP_INDEX_URL = $PipIndex
   $env:PIP_TRUSTED_HOST = ([Uri] $PipIndex).Host
   try {
@@ -181,20 +232,16 @@ function Install-Pip {
       $script = Join-Path $env:TEMP 'vair-get-pip.py'
       Remove-Item $script -Force -ErrorAction SilentlyContinue
       if (-not (Get-File $url $script)) { continue }
-
-      $host_ = ([Uri] $url).Host
-      Info "  引导脚本：$host_"
-      & $PyExe $script --no-warn-script-location --disable-pip-version-check
-      Remove-Item $script -Force -ErrorAction SilentlyContinue
-
-      & $PyExe -m pip --version --disable-pip-version-check
-      if ($LASTEXITCODE -eq 0) { return $true }
-      Warn "$host_ 那份 get-pip.py 没装上（多半是版本太旧），换下一个来源试试…"
+      Info "  引导脚本：$(([Uri] $url).Host)"
+      try { & $PyExe $script --no-warn-script-location --disable-pip-version-check }
+      finally { Remove-Item $script -Force -ErrorAction SilentlyContinue }
+      if (Test-Pip) { return $true }
+      Warn 'get-pip.py 没装成功，改用国内镜像的 pip wheel。'
     }
+    return (Install-PipWheel)
   } finally {
     Remove-Item Env:PIP_INDEX_URL, Env:PIP_TRUSTED_HOST -ErrorAction SilentlyContinue
   }
-  return $false
 }
 
 # ---------------------------------------------------------------- 开跑
@@ -218,13 +265,15 @@ $runArgs = @($Passthru | Where-Object { $_ -ne '--setup-python' })
 $python = $null
 if (Test-PythonExe $PyExe) {
   $python = (Resolve-Path -LiteralPath $PyExe).Path
-  if ($setupOnly) { Ok "便携版 Python 已就绪：$python"; & $python -V; exit 0 }
-} elseif ($setupOnly -or (Confirm-PortablePython)) {
-  if (Install-PortablePython -and (Test-PythonExe $PyExe)) {
-    $python = (Resolve-Path -LiteralPath $PyExe).Path
+  if (-not (Test-Pip)) {
+    Warn '便携版 Python 已存在，但 pip 不可用；先修复 pip。'
+    if (-not (Install-Pip)) { Warn 'pip 尚未就绪；继续启动，后端会显示诊断页。' }
   }
-  if ($setupOnly) {
-    if ($python) { Ok "便携版 Python 已就绪：$python"; & $python -V; exit 0 }
+} elseif ($setupOnly -or (Confirm-PortablePython)) {
+  # 即使 pip 没装上，Python 本身还能运行；让后端进入诊断模式而非假装成功。
+  $null = Install-PortablePython
+  if (Test-PythonExe $PyExe) { $python = (Resolve-Path -LiteralPath $PyExe).Path }
+  if ($setupOnly -and -not $python) {
     Bad '便携版 Python 没装成。'
     exit 1
   }
@@ -254,7 +303,7 @@ if (-not $llama) {
   Warn '还没放 AI 资产（llama.cpp 运行时 + 视觉/转写模型，约 10 GB）。'
   Info '  启动后打开页面 → 设置 → 系统 → 点「补齐 AI 依赖与模型」（走 HF-Mirror，支持断点续传）；'
   Info '  要连别的机器上现成的推理服务，就在 设置 → AI 与提示词 里改「接口地址」，不用下这些。'
-  Info '  ffmpeg / exiftool 缺了会在启动时自动补，不用管。'
+  Info '  ffmpeg / exiftool 缺了会在依赖装好后自动补；网络不通仍可先打开页面。'
 }
 
 Write-Host ''

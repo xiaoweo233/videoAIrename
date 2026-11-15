@@ -740,18 +740,8 @@ def _progress(name: str, done: int, total: int, base_done: int, started: float) 
 def _safe_extract(archive: Path, target: Path) -> None:
     """解压 zip 并防目录穿越（zip slip）。"""
     target.mkdir(parents=True, exist_ok=True)
-    target_resolved = target.resolve()
     with zipfile.ZipFile(archive) as zf:
-        for member in zf.infolist():
-            name = member.filename
-            if not name or name.endswith("/"):
-                continue
-            candidate = (target / name).resolve()
-            try:
-                candidate.relative_to(target_resolved)
-            except ValueError:
-                raise RuntimeError(f"压缩包内含非法路径，已中止：{name}") from None
-            zf.extract(member, target)
+        _safe_extract_to(zf, target)
 
 
 def fetch_assets(ids: list[str] | None = None, echo: Callable[[str], None] | None = None) -> dict[str, Any]:
@@ -972,6 +962,107 @@ def _fetch_hf_repo(asset: dict[str, Any], asset_id: str) -> tuple[bool, str]:
 
 # ---------------------------------------------------------------- 依赖安装
 
+def pip_available() -> bool:
+    return _importable("pip")
+
+
+def install_pip() -> tuple[bool, str]:
+    """给当前解释器补 pip，返回 (是否可用, 说明)。
+
+    便携版 Python（embeddable）不带 pip。原来只在启动脚本里补，用户直接
+    `python run.py` 时会一路卡到「No module named pip」。这里兜一层：
+    先试官方 get-pip.py，再退到国内镜像的 pip wheel（校验 SHA-256 后解压）。
+
+    不能退到阿里云的 get-pip.py —— 那份是旧版，里面捆的 pip 还要 distutils，
+    而 3.12 已经删掉 distutils，跑起来只会报 ModuleNotFoundError。
+    """
+    if pip_available():
+        return True, "pip 已就绪"
+
+    import urllib.request
+
+    def fetch(url: str) -> bytes:
+        with urllib.request.urlopen(url, timeout=60) as resp:   # noqa: S310
+            return resp.read()
+
+    script = paths.CACHE_DIR / "get-pip.py"
+    try:
+        script.write_bytes(fetch("https://bootstrap.pypa.io/get-pip.py"))
+        result = run([sys.executable, str(script), "--no-warn-script-location",
+                      "--disable-pip-version-check"], timeout=900, check=False)
+        if result.returncode == 0 and pip_available():
+            return True, "pip 安装完成"
+    except Exception as exc:                        # noqa: BLE001
+        hub.debug(f"get-pip.py 引导失败：{exc}")
+    finally:
+        script.unlink(missing_ok=True)
+
+    ok, message = _install_pip_wheel(fetch)
+    if ok:
+        return True, message
+    return False, f"pip 安装失败（get-pip.py 与镜像 wheel 都没成）：{message}"
+
+
+def _install_pip_wheel(fetch: Callable[[str], bytes]) -> tuple[bool, str]:
+    """从国内 simple 索引取一个兼容的 pip wheel，校验后解压进 site-packages。"""
+    import hashlib
+    import io
+    import re
+    from urllib.parse import urljoin
+
+    pattern = re.compile(
+        r"""href=["']([^"']*pip-(\d+)\.(\d+)(?:\.(\d+))?-py3-none-any\.whl"""
+        r"""#sha256=([0-9a-f]{64}))["']""", re.IGNORECASE)
+
+    errors: list[str] = []
+    for index in ("https://pypi.tuna.tsinghua.edu.cn/simple/pip/",
+                  "https://mirrors.aliyun.com/pypi/simple/pip/"):
+        try:
+            page = fetch(index).decode("utf-8", "replace")
+            best: tuple[tuple[int, int, int], str, str] | None = None
+            for match in pattern.finditer(page):
+                version = (int(match.group(2)), int(match.group(3)),
+                           int(match.group(4) or 0))
+                if version[0] >= 24 and (best is None or version > best[0]):
+                    best = (version, match.group(1), match.group(5))
+            if best is None:
+                raise RuntimeError("索引里没有兼容的 pip wheel")
+
+            version, href, digest = best
+            url = urljoin(index, href)
+            data = fetch(url)
+            if hashlib.sha256(data).hexdigest() != digest.lower():
+                raise RuntimeError("wheel 校验失败（SHA-256 不符）")
+
+            site = Path(sys.prefix) / "Lib" / "site-packages"
+            site.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                _safe_extract_to(zf, site)
+
+            import importlib
+            importlib.invalidate_caches()
+            if pip_available():
+                return True, f"pip {'.'.join(map(str, version))} 安装完成（{index.split('/')[2]}）"
+            raise RuntimeError("解压后仍无法导入 pip")
+        except Exception as exc:                    # noqa: BLE001
+            errors.append(f"{index.split('/')[2]}：{exc}")
+    return False, "；".join(errors)
+
+
+def _safe_extract_to(zf: zipfile.ZipFile, target: Path) -> None:
+    """防 zip slip 地解压已打开的压缩包。"""
+    target_resolved = target.resolve()
+    for member in zf.infolist():
+        if not member.filename or member.filename.endswith("/"):
+            continue
+        candidate = (target / member.filename).resolve()
+        try:
+            candidate.relative_to(target_resolved)
+        except ValueError:
+            raise RuntimeError(f"压缩包内含非法路径：{member.filename}") from None
+        zf.extract(member, target)
+
+
 def install_requirements(extra: list[str] | None = None) -> tuple[bool, str]:
     """把依赖装进 libs/（零污染，不动系统环境）。"""
     packages = list(extra or [])
@@ -979,6 +1070,13 @@ def install_requirements(extra: list[str] | None = None) -> tuple[bool, str]:
         packages = missing_packages()
     if not packages:
         return True, "依赖齐备，无需安装"
+
+    if not pip_available():
+        ok, message = install_pip()
+        hub.log("info" if ok else "warn", message)
+        if not ok:
+            return False, message
+
     paths.LIBS_DIR.mkdir(parents=True, exist_ok=True)
     index = os.environ.get("PIP_INDEX_URL") or PIP_PRESETS["tsinghua"]
 

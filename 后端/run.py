@@ -5,8 +5,8 @@
     1. sys.path 处理 + stdio 兜底（pythonw 下 stdout 可能是 None）
     2. bootstrap.early_init()      ← 必须在任何第三方 import 之前
     3. 读取配置并应用镜像
-    4. 自检（缺 ffmpeg / 核心依赖就直接退出，别让用户对着报错猜）
-    5. 此时才允许 import uvicorn 与 api
+    4. 自检并尝试补齐依赖 / 外部工具
+    5. 核心依赖缺失时只启动本机诊断服务；齐备时才导入 uvicorn 与 api
 
 用法：
     python run.py                     # 默认 127.0.0.1:8000
@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lan", action="store_true", help="监听 0.0.0.0，允许局域网设备访问")
     parser.add_argument("--reload", action="store_true", help="开发模式：代码变更自动重启")
     parser.add_argument("--selfcheck", action="store_true", help="只打印自检报告后退出")
-    parser.add_argument("--no-install", action="store_true", help="缺依赖时不自动安装，直接报错退出")
+    parser.add_argument("--no-install", action="store_true", help="跳过自动安装；核心依赖缺失时进入只读诊断页")
     parser.add_argument("--no-autostart", action="store_true", help="不自动拉起内置 AI 服务")
     return parser.parse_args()
 
@@ -124,11 +124,13 @@ def main() -> int:
         if missing_modules and not args.no_install:
             print()
             print("  正在尝试把缺失依赖安装到 后端/libs/（不污染系统环境）…")
-            ok, message = bootstrap.install_requirements(
-                [bootstrap.REQUIRED_MODULES[m] for m in missing_modules])
+            try:
+                ok, message = bootstrap.install_requirements(
+                    [bootstrap.REQUIRED_MODULES[m] for m in missing_modules])
+            except Exception as exc:               # noqa: BLE001
+                ok, message = False, f"依赖安装异常：{exc}"
             print(f"  {'✓' if ok else '✗'} {message}")
-            if ok:
-                report = bootstrap.probe()
+            report = bootstrap.probe()
 
         # ffmpeg / exiftool 体积大、不入库，缺了在启动时就补一次 —— 否则用户连
         # 页面都进不去（ffmpeg 缺失会直接拦下启动），也就点不到「一键补齐」。
@@ -143,17 +145,27 @@ def main() -> int:
             print()
             print(f"  缺外部工具：{'、'.join(tools_wanted)} —— 正在从网络补齐"
                   "（只下一次，之后就在仓库目录里了）…")
-            ok, message = bootstrap.provision_tools(tools_wanted)
+            try:
+                ok, message = bootstrap.provision_tools(tools_wanted)
+            except Exception as exc:               # noqa: BLE001
+                ok, message = False, f"外部工具下载异常：{exc}"
             print(f"  {'✓' if ok else '✗'} {message}")
             report = bootstrap.probe()
 
-        if not report["ok"]:
-            print()
-            print("  启动中止：请先解决上面列出的问题，或加 --no-install 跳过自动安装。")
-            if not report["tools"]["ffmpeg"]["ok"]:
-                print("  ffmpeg 也可以手动补：把 ffmpeg.exe 与 ffprobe.exe 放进 "
-                      f"{bootstrap.paths.FFMPEG_DIR}（或该目录下的 bin\\）即可。")
-            return 1
+    missing = report["modules"]["missing"]
+    if missing:
+        # FastAPI/Uvicorn 本身不存在就不能承诺启动完整后端；只开放本机诊断页，
+        # 让用户看到缺什么并能重试，而不是窗口一闪而过或显示假工作台。
+        host, port = _resolve_listen(args, cfg)
+        if host not in ("127.0.0.1", "localhost"):
+            print("  ⚠ 核心依赖缺失，诊断页只允许本机访问（忽略局域网监听配置）")
+        print("  ⚠ 核心依赖缺失，进入诊断模式：工作台和视频处理暂不可用")
+        from app.diagnostics import serve
+        return serve(port)
+
+    if not report["ok"]:
+        print("  ⚠ ffmpeg/ffprobe 缺失：先打开界面，视频处理会提示缺少外部工具。")
+        print(f"    也可手动将 ffmpeg.exe、ffprobe.exe 放到 {bootstrap.paths.FFMPEG_DIR}")
 
     # ---- 3. 监听参数 ----
     host, port = _resolve_listen(args, cfg)
