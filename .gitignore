@@ -33,6 +33,8 @@ logs/
 .tools/
 
 # ---- Python ----
+# start.bat 自己下载的便携版解释器（整个目录都在项目里，不入库）
+python/
 __pycache__/
 *.py[cod]
 *.egg-info/

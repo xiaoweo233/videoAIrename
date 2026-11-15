@@ -130,9 +130,29 @@ def main() -> int:
             if ok:
                 report = bootstrap.probe()
 
+        # ffmpeg / exiftool 体积大、不入库，缺了在启动时就补一次 —— 否则用户连
+        # 页面都进不去（ffmpeg 缺失会直接拦下启动），也就点不到「一键补齐」。
+        # 必须排在依赖安装之后：这一步要用 httpx。
+        tools_wanted: list[str] = []
+        if not (report["tools"]["ffmpeg"]["ok"] and report["tools"]["ffprobe"]["ok"]):
+            tools_wanted.append("ffmpeg")
+        if not report["tools"]["exiftool"]["ok"]:
+            tools_wanted.append("exiftool")
+
+        if tools_wanted and not args.no_install and not report["modules"]["missing"]:
+            print()
+            print(f"  缺外部工具：{'、'.join(tools_wanted)} —— 正在从网络补齐"
+                  "（只下一次，之后就在仓库目录里了）…")
+            ok, message = bootstrap.provision_tools(tools_wanted)
+            print(f"  {'✓' if ok else '✗'} {message}")
+            report = bootstrap.probe()
+
         if not report["ok"]:
             print()
             print("  启动中止：请先解决上面列出的问题，或加 --no-install 跳过自动安装。")
+            if not report["tools"]["ffmpeg"]["ok"]:
+                print("  ffmpeg 也可以手动补：把 ffmpeg.exe 与 ffprobe.exe 放进 "
+                      f"{bootstrap.paths.FFMPEG_DIR}（或该目录下的 bin\\）即可。")
             return 1
 
     # ---- 3. 监听参数 ----

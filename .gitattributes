@@ -1,0 +1,23 @@
+# 换行符策略
+#
+# .bat/.cmd 必须是 CRLF：cmd.exe 按行读取批处理文件，用 LF 时
+# `goto :label` / `call :label` 会找不到标签（实测踩过）。
+# 显式写死，免得 clone 的人 core.autocrlf=false 拿到 LF 版本。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+# .ps1 带 UTF-8 BOM（PowerShell 5.1 没 BOM 时按 ANSI 读，中文注释会变乱码）
+*.ps1 text eol=crlf
+
+# 其余文本文件按仓库里的原样保存（本仓库统一用 LF）
+# 注意：本人机器上 core.autocrlf=true，没写进这里后缀会被检出成 CRLF，
+# 所以下面这些后缀与两个点文件都显式声明一次。
+*.md   text eol=lf
+*.py   text eol=lf
+*.js   text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.txt  text eol=lf
+*.mjs  text eol=lf
+.gitattributes text eol=lf
+.gitignore     text eol=lf
