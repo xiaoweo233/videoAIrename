@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#f3f4fa">
+  <meta name="description" content="VAIR · 视频 AI 重命名助手。拖入素材，自动完成探测、转写、分析与命名。">
+  <title>VAIR · 视频 AI 重命名助手</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%237ee8fa'/%3E%3Cstop offset='.55' stop-color='%238b7cff'/%3E%3Cstop offset='1' stop-color='%23c084fc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='18' fill='url(%23g)'/%3E%3Cpath d='M25 20l18 12-18 12z' fill='%230a0a1a'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true">
+    <span class="aurora__blob aurora__blob--violet"></span>
+    <span class="aurora__blob aurora__blob--cyan"></span>
+    <span class="aurora__blob aurora__blob--rose"></span>
+  </div>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="noise" aria-hidden="true"></div>
+  <div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
+
+  <a class="skip-link" href="#main">跳到主内容</a>
+
+  <svg class="svg-sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.8"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.8"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.8"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.8"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h3.2l2.1-6.4 3.9 13 2.4-8 1.7 3.4H21"/></symbol>
+    <symbol id="i-check-square" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><path d="M8 12.3l2.7 2.7L16.4 9"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2.8" y="4.2" width="18.4" height="15.6" rx="4"/><path d="M7 9.4l3 2.8-3 2.8M12.6 15.2h4.4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 14.4a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9.1A1.7 1.7 0 0 0 10.13 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.1A1.7 1.7 0 0 0 21 10.13h.1a2 2 0 1 1 0 4H21a1.7 1.7 0 0 0-1.6 1.03z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.2A2.2 2.2 0 0 1 5.2 5h3.3l1.8 2.1h8.5A2.2 2.2 0 0 1 21 9.3v7.5a2.2 2.2 0 0 1-2.2 2.2H5.2A2.2 2.2 0 0 1 3 16.8z"/></symbol>
+    <symbol id="i-file-video" viewBox="0 0 24 24"><path d="M6 2.8h7.6L20 9.2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-14a2 2 0 0 1 2-2z"/><path d="M13.4 2.9v6.4H20"/><path d="M10.1 12.3l4.2 2.6-4.2 2.6z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4.8M7.4 9.4L12 4.8l4.6 4.6"/><path d="M4 15.2v2.6A2.2 2.2 0 0 0 6.2 20h11.6a2.2 2.2 0 0 0 2.2-2.2v-2.6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.3l10.2 6.7L8 18.7z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.4" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.6h5V7M6.2 7l.8 12.2a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L17.8 7M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3.2l1.7 4.7 4.7 1.7-4.7 1.7L12 16l-1.7-4.7L5.6 9.6l4.7-1.7z"/><path d="M18.6 15.4l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/><path d="M5 15.6l.6 1.6 1.6.6-1.6.6L5 20l-.6-1.6L2.8 18l1.6-.6z"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M5.5 9L12 15.5 18.5 9"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.4 14.2A8.6 8.6 0 0 1 9.8 3.6 8.8 8.8 0 1 0 20.4 14.2z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.2M12 19.2v2.2M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.4 19.6L6 18M18 6l1.6-1.6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.8 15.8L21 21"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.8 12.6l4.8 4.8L19.4 6.8"/></symbol>
+    <symbol id="i-skip" viewBox="0 0 24 24"><path d="M5 5.5l8.2 6.5L5 18.5zM17.6 5.4v13.2"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h15.2M13.4 6.2L19.2 12l-5.8 5.8"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11.2A8.2 8.2 0 1 0 18.2 17"/><path d="M20.4 4.6v6.6h-6.6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.8v11.4M7.4 10.8L12 15.4l4.6-4.6"/><path d="M4.2 18.4v.6a2 2 0 0 0 2 2h11.6a2 2 0 0 0 2-2v-.6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.4" y="8.4" width="11.6" height="11.6" rx="3"/><path d="M15.6 8.4V6.2A2.2 2.2 0 0 0 13.4 4H6.2A2.2 2.2 0 0 0 4 6.2v7.2a2.2 2.2 0 0 0 2.2 2.2h2.2"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6.4" y="6.4" width="11.2" height="11.2" rx="2.6"/><rect x="9.8" y="9.8" width="4.4" height="4.4" rx="1"/><path d="M9.6 2.8v3.6M14.4 2.8v3.6M9.6 17.6v3.6M14.4 17.6v3.6M2.8 9.6h3.6M2.8 14.4h3.6M17.6 9.6h3.6M17.6 14.4h3.6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.8"/><path d="M12 7.2V12l3.4 2.2"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13.4 2.8L5.2 13.4h5.8l-.4 7.8 8.2-10.6h-5.8z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8l7.6 3v6.4c0 4.4-3.2 7.6-7.6 9-4.4-1.4-7.6-4.6-7.6-9V5.8z"/><path d="M8.8 12.1l2.3 2.3 4.3-4.4"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.2l8.6 4.6L12 12.4 3.4 7.8z"/><path d="M3.4 12.2L12 16.8l8.6-4.6M3.4 16.4L12 21l8.6-4.6"/></symbol>
+    <symbol id="i-wand" viewBox="0 0 24 24"><path d="M4 20L16.4 7.6M14.2 5.4l4.4 4.4"/><path d="M18.6 3.2l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7zM6.4 3.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5zM20 15.4l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5z"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.4"/><circle cx="12" cy="7.8" r="1.05" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.2L2.6 18a2 2 0 0 0 1.8 3h15.2a2 2 0 0 0 1.8-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9v4.6"/><circle cx="12" cy="17.1" r="1.05" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.4 12S5.8 5.6 12 5.6 21.6 12 21.6 12 18.2 18.4 12 18.4 2.4 12 2.4 12z"/><circle cx="12" cy="12" r="3.1"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6a9.9 9.9 0 0 1 1.4-.1c6.2 0 9.6 6.1 9.6 6.1a17 17 0 0 1-2.7 3.6M6.4 6.6A16.8 16.8 0 0 0 2.4 12S5.8 18.1 12 18.1c1.4 0 2.7-.3 3.8-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M8.4 4.8L3.8 9.4l4.6 4.6"/><path d="M3.8 9.4h9.4a7 7 0 1 1 0 14h-2"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2.4" y="5.4" width="19.2" height="13.2" rx="3"/><path d="M6.2 9.4h.1M9.4 9.4h.1M12.6 9.4h.1M15.8 9.4h.1M19 9.4h.1M6.2 12.6h.1M9.4 12.6h.1M12.6 12.6h.1M15.8 12.6h.1M19 12.6h.1M7.4 15.6h9.2"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6.2a2.8 2.8 0 1 0-2.8 2.8H9zM15 6.2a2.8 2.8 0 1 1 2.8 2.8H15zM9 17.8a2.8 2.8 0 1 1-2.8-2.8H9zM15 17.8a2.8 2.8 0 1 0 2.8-2.8H15z"/><rect x="9" y="9" width="6" height="6" rx="1.4"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2.8" y="3.8" width="18.4" height="12.6" rx="2.6"/><path d="M8.4 20.4h7.2M12 16.4v4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M13.6 4H20v6.4M20 4l-8.6 8.6"/><path d="M18.4 14v4.2a2.2 2.2 0 0 1-2.2 2.2H5.8a2.2 2.2 0 0 1-2.2-2.2V7.8a2.2 2.2 0 0 1 2.2-2.2H10"/></symbol>
+    <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="M3 8.2V6.4a2 2 0 0 1 2-2h3.4l1.8 2.1h6.6a2 2 0 0 1 2 2v1.7"/><path d="M3.2 9h18l-2.2 9.4a2 2 0 0 1-2 1.6H5.4a2 2 0 0 1-2-1.6z"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2.2l1.6-4.6 2.6 9.2 2.2-6 1.6 3.4h2.4l1.6-4 1.4 2H21"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <a class="brand" href="#workbench" data-nav="workbench" aria-label="VAIR 工作台">
+      <span class="brand__mark">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M13 9.5l10.5 6.5L13 22.5z" fill="currentColor"/></svg>
+      </span>
+      <span class="brand__text">
+        <strong>VAIR</strong>
+        <span>视频 AI 重命名助手</span>
+      </span>
+    </a>
+
+    <div class="topbar__right">
+      <button class="connection" type="button" data-toast="后端连接正常 · 延迟 12ms">
+        <span class="connection__dot" aria-hidden="true"></span>
+        <span>已连接后端</span>
+        <span class="connection__meta">v2.4.1</span>
+      </button>
+      <button class="icon-btn icon-btn--ghost cmd-trigger" type="button" aria-label="打开快速跳转（Ctrl+K）" data-command-open>
+        <svg class="icon"><use href="#i-command"/></svg>
+        <span class="cmd-trigger__keys" aria-hidden="true">⌘K</span>
+      </button>
+      <button class="icon-btn theme-toggle" type="button" aria-label="切换浅色主题" aria-pressed="false">
+        <svg class="icon icon-moon"><use href="#i-moon"/></svg>
+        <svg class="icon icon-sun"><use href="#i-sun"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar" aria-label="主导航">
+      <nav class="nav">
+        <p class="nav__label">空间</p>
+        <a class="nav__item" href="#workbench" data-nav="workbench">
+          <span class="nav__icon"><svg class="icon"><use href="#i-grid"/></svg></span>
+          <span class="nav__text"><strong>工作台</strong><small>Workbench</small></span>
+          <span class="nav__glow" aria-hidden="true"></span>
+        </a>
+        <a class="nav__item" href="#realtime" data-nav="realtime">
+          <span class="nav__icon"><svg class="icon"><use href="#i-activity"/></svg></span>
+          <span class="nav__text"><strong>实时进度</strong><small>Live pipeline</small></span>
+          <span class="nav__glow" aria-hidden="true"></span>
+        </a>
+        <a class="nav__item" href="#approvals" data-nav="approvals">
+          <span class="nav__icon"><svg class="icon"><use href="#i-check-square"/></svg></span>
+          <span class="nav__text"><strong>命名审批</strong><small>Review</small></span>
+          <span class="nav__badge" data-approval-badge hidden>0</span>
+          <span class="nav__glow" aria-hidden="true"></span>
+        </a>
+        <a class="nav__item" href="#logs" data-nav="logs">
+          <span class="nav__icon"><svg class="icon"><use href="#i-terminal"/></svg></span>
+          <span class="nav__text"><strong>运行日志</strong><small>Console</small></span>
+          <span class="nav__glow" aria-hidden="true"></span>
+        </a>
+        <a class="nav__item nav__item--parent" href="#settings" data-nav="settings" aria-expanded="false" aria-controls="settingsSubnav">
+          <span class="nav__icon"><svg class="icon"><use href="#i-settings"/></svg></span>
+          <span class="nav__text"><strong>设置</strong><small>Preferences</small></span>
+          <svg class="icon nav__caret"><use href="#i-chevron-down"/></svg>
+          <span class="nav__glow" aria-hidden="true"></span>
+        </a>
+
+        <div class="subnav" id="settingsSubnav" data-subnav aria-label="设置分类">
+          <button class="subnav__item" type="button" data-subnav="engine">
+            <svg class="icon"><use href="#i-cpu"/></svg><span>引擎与输入</span>
+          </button>
+          <button class="subnav__item" type="button" data-subnav="naming">
+            <svg class="icon"><use href="#i-wand"/></svg><span>命名与输出</span>
+          </button>
+          <button class="subnav__item" type="button" data-subnav="ai">
+            <svg class="icon"><use href="#i-sparkles"/></svg><span>AI 与提示词</span>
+          </button>
+          <button class="subnav__item" type="button" data-subnav="system">
+            <svg class="icon"><use href="#i-sliders"/></svg><span>系统与依赖</span>
+          </button>
+          <button class="subnav__item" type="button" data-subnav="glossary">
+            <svg class="icon"><use href="#i-layers"/></svg><span>术语表</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="sidebar__foot">
+        <div class="engine-mini">
+          <div class="engine-mini__top">
+            <span class="engine-mini__pulse" aria-hidden="true"></span>
+            <span>本地引擎</span>
+            <span class="engine-mini__value">就绪</span>
+          </div>
+          <div class="engine-mini__bar"><span data-engine-bar style="width:8%"></span></div>
+          <p>产物保存在应用目录，卸载即删除文件夹。</p>
+        </div>
+        <div class="sidebar__hint">
+          <svg class="icon"><use href="#i-keyboard"/></svg>
+          <span><kbd>Ctrl</kbd><kbd>K</kbd> 快速跳转</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main" id="main">
+      <section class="view is-active" data-view="workbench" aria-labelledby="workbench-title">
+        <div class="page-head">
+          <div class="page-head__copy">
+            <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot"></span> Workspace</p>
+            <h1 id="workbench-title" class="reveal" style="--i:1">工作台<span class="title-glow">.</span></h1>
+            <p class="page-head__sub reveal" style="--i:2">拖入一个文件夹，剩下的交给引擎。探测、转写、分析、命名，一条流水线完成。</p>
+          </div>
+          <div class="page-head__actions reveal" style="--i:3">
+            <button class="btn btn--ghost" type="button" data-command-open>
+              <svg class="icon"><use href="#i-search"/></svg>快速跳转
+              <kbd>⌘K</kbd>
+            </button>
+          </div>
+        </div>
+
+        <div class="dropzone glass reveal" id="dropzone" style="--i:4" data-dropzone>
+          <div class="dropzone__glow" aria-hidden="true"></div>
+          <div class="dropzone__inner">
+            <div class="drop-orb">
+              <div class="drop-orb__ring" aria-hidden="true"></div>
+              <div class="drop-orb__ring drop-orb__ring--slow" aria-hidden="true"></div>
+              <svg class="icon drop-orb__icon"><use href="#i-file-video"/></svg>
+            </div>
+            <h2 class="dropzone__title">把视频或文件夹拖到这里</h2>
+            <p class="dropzone__desc">支持批量添加，自动递归扫描子目录 · 也可用系统窗口选择</p>
+            <form class="path-row" id="pathForm" autocomplete="off">
+              <span class="path-row__icon"><svg class="icon"><use href="#i-folder-open"/></svg></span>
+              <input class="path-row__input" id="pathInput" type="text" placeholder="也可直接粘贴路径，例如 D:\素材\产品视频" aria-label="素材路径">
+              <button class="btn btn--soft btn--sm" type="submit">加入</button>
+            </form>
+            <div class="dropzone__actions">
+              <button class="btn btn--primary" type="button" data-add-sample>
+                <svg class="icon"><use href="#i-upload"/></svg>选择视频
+              </button>
+              <button class="btn btn--soft" type="button" data-add-sample>
+                <svg class="icon"><use href="#i-folder"/></svg>选择文件夹
+              </button>
+              <button class="btn btn--ghost btn--sm" type="button" data-clear-queue>
+                <svg class="icon"><use href="#i-trash"/></svg>清空
+              </button>
+            </div>
+            <p class="dropzone__formats">MP4 · MOV · MKV · AVI · WebM　/　单次最多 200 个文件</p>
+          </div>
+        </div>
+
+        <div class="queue-strip reveal" style="--i:5" data-queue-strip hidden>
+          <div class="queue-strip__head">
+            <span class="section-label"><svg class="icon"><use href="#i-layers"/></svg>待处理队列</span>
+            <span class="queue-strip__count" data-queue-count>0 个文件</span>
+          </div>
+          <div class="queue-list" data-queue-list></div>
+        </div>
+
+        <div class="workbench-grid">
+          <section class="card control-card reveal" style="--i:6" aria-labelledby="control-title">
+            <div class="card__head">
+              <div>
+                <p class="section-label">任务控制</p>
+                <h2 id="control-title" class="card__title">准备好了就开始</h2>
+              </div>
+              <span class="status-pill" data-task-pill><i></i><span>待机</span></span>
+            </div>
+            <div class="control-card__actions">
+              <button class="btn btn--primary btn--lg" type="button" data-start>
+                <svg class="icon"><use href="#i-play"/></svg><span data-start-label>开始处理</span>
+              </button>
+              <button class="btn btn--danger btn--lg" type="button" data-stop disabled>
+                <svg class="icon"><use href="#i-stop"/></svg>停止
+              </button>
+            </div>
+            <div class="control-card__row">
+              <div class="switch-row">
+                <span class="switch-row__icon"><svg class="icon"><use href="#i-eye"/></svg></span>
+                <div class="switch-row__text">
+                  <strong>预览模式 <span class="hint-dot" title="只计算不落盘，用于确认命名效果">?</span></strong>
+                  <small>只计算不落盘，先确认命名效果</small>
+                </div>
+                <button class="switch" type="button" role="switch" aria-checked="false" aria-label="预览模式" data-preview-toggle><span></span></button>
+              </div>
+            </div>
+            <div class="control-card__foot">
+              <span><svg class="icon"><use href="#i-shield"/></svg>本地推理 · 素材不出设备</span>
+              <span><svg class="icon"><use href="#i-cpu"/></svg><span data-gpu-label>CUDA 加速可用</span></span>
+            </div>
+          </section>
+
+          <section class="stats-grid" aria-label="任务统计">
+            <article class="stat glass reveal" style="--i:7" data-stat="success">
+              <span class="stat__accent"></span>
+              <div class="stat__top"><span class="stat__label">成功</span><span class="stat__icon"><svg class="icon"><use href="#i-check"/></svg></span></div>
+              <strong class="stat__value" data-stat-value>0</strong>
+              <div class="stat__bar"><span></span></div>
+              <p class="stat__foot">已重命名</p>
+            </article>
+            <article class="stat glass reveal" style="--i:8" data-stat="skipped">
+              <span class="stat__accent"></span>
+              <div class="stat__top"><span class="stat__label">跳过</span><span class="stat__icon"><svg class="icon"><use href="#i-skip"/></svg></span></div>
+              <strong class="stat__value" data-stat-value>0</strong>
+              <div class="stat__bar"><span></span></div>
+              <p class="stat__foot">规则排除</p>
+            </article>
+            <article class="stat glass reveal" style="--i:9" data-stat="failed">
+              <span class="stat__accent"></span>
+              <div class="stat__top"><span class="stat__label">失败</span><span class="stat__icon"><svg class="icon"><use href="#i-alert"/></svg></span></div>
+              <strong class="stat__value" data-stat-value>0</strong>
+              <div class="stat__bar"><span></span></div>
+              <p class="stat__foot">需人工处理</p>
+            </article>
+            <article class="stat glass reveal" style="--i:10" data-stat="avg">
+              <span class="stat__accent"></span>
+              <div class="stat__top"><span class="stat__label">平均耗时</span><span class="stat__icon"><svg class="icon"><use href="#i-clock"/></svg></span></div>
+              <strong class="stat__value" data-stat-value>—</strong>
+              <div class="stat__bar"><span></span></div>
+              <p class="stat__foot">秒 / 视频</p>
+            </article>
+          </section>
+        </div>
+
+        <section class="card progress-card reveal" style="--i:11" aria-labelledby="progress-title">
+          <div class="card__head">
+            <div>
+              <p class="section-label">当前任务进度</p>
+              <h2 id="progress-title" class="card__title" data-progress-title>空闲</h2>
+            </div>
+            <div class="progress-card__meta">
+              <span class="status-pill" data-progress-pill><i></i><span>待机</span></span>
+              <span class="mono muted" data-progress-file>等待素材</span>
+            </div>
+          </div>
+          <div class="progress-main">
+            <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-progress-track>
+              <span class="progress-track__fill" data-progress-fill></span>
+              <span class="progress-track__shimmer" data-progress-fill></span>
+            </div>
+            <div class="progress-readout">
+              <strong data-progress-percent>0<span>%</span></strong>
+              <small>完成度</small>
+            </div>
+          </div>
+          <div class="progress-foot">
+            <span data-progress-caption>0 / 0 个文件</span>
+            <span data-progress-eta>预计剩余 —</span>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="realtime" aria-labelledby="realtime-title" hidden>
+        <div class="page-head">
+          <div class="page-head__copy">
+            <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot"></span> Live pipeline</p>
+            <h1 id="realtime-title" class="reveal" style="--i:1">实时进度<span class="title-glow">.</span></h1>
+            <p class="page-head__sub reveal" style="--i:2">当前正在处理哪个文件，一眼看清。长时间无输出会在此高亮提示。</p>
+          </div>
+          <div class="page-head__actions reveal" style="--i:3">
+            <button class="btn btn--ghost" type="button" data-nav="logs">
+              <svg class="icon"><use href="#i-terminal"/></svg>查看日志
+            </button>
+          </div>
+        </div>
+
+        <section class="live-card glass reveal" style="--i:4">
+          <div class="live-card__orb"><svg class="icon"><use href="#i-wave"/></svg></div>
+          <div class="live-card__body">
+            <div class="live-card__line">
+              <h2 data-live-title>空闲中</h2>
+              <span class="live-badge"><i></i>LIVE</span>
+            </div>
+            <p data-live-sub>等待任务开始 · 引擎与模型均已就绪</p>
+            <div class="live-card__progress">
+              <div class="mini-track"><span data-live-bar></span></div>
+              <span class="mono" data-live-percent>0%</span>
+            </div>
+          </div>
+          <div class="live-card__stats">
+            <div><small>当前阶段</small><strong data-live-stage>—</strong></div>
+            <div><small>已用时间</small><strong data-live-elapsed>00:00</strong></div>
+          </div>
+        </section>
+
+        <section class="card pipeline-card reveal" style="--i:5" aria-labelledby="pipeline-title">
+          <div class="card__head">
+            <div>
+              <p class="section-label">Pipeline</p>
+              <h2 id="pipeline-title" class="card__title">五阶段流水线</h2>
+            </div>
+            <p class="card__note">②a 抽帧与 ②b 转写互不阻塞，字幕与视觉齐备后进入 ③ 合并</p>
+          </div>
+          <div class="pipeline" data-pipeline>
+            <article class="stage" data-stage="0">
+              <button class="stage__head" type="button" aria-expanded="false">
+                <span class="stage__num">1</span>
+                <span class="stage__title"><strong>探测</strong><small>Probe</small></span>
+                <span class="stage__state"><i></i><span>待机</span></span>
+                <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
+              </button>
+              <p class="stage__desc">ffprobe 读取时长、音轨、creation_time，建立素材指纹。</p>
+              <div class="stage__detail">
+                <dl><div><dt>时长</dt><dd data-stage-metric>—</dd></div><div><dt>编码</dt><dd>H.264 / AAC</dd></div></dl>
+                <p class="stage__log" data-stage-log>等待素材进入流水线。</p>
+              </div>
+            </article>
+            <div class="stage-branch">
+              <article class="stage stage--small" data-stage="1">
+                <button class="stage__head" type="button" aria-expanded="false">
+                  <span class="stage__num">2a</span>
+                  <span class="stage__title"><strong>抽帧</strong><small>Frames</small></span>
+                  <span class="stage__state"><i></i><span>待机</span></span>
+                  <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
+                </button>
+                <p class="stage__desc">ffmpeg 并发抽关键帧，生成视觉摘要。</p>
+                <div class="stage__detail">
+                  <dl><div><dt>帧数</dt><dd data-stage-metric>—</dd></div><div><dt>并发</dt><dd>4</dd></div></dl>
+                  <p class="stage__log" data-stage-log>等待视觉分析。</p>
+                </div>
+              </article>
+              <article class="stage stage--small" data-stage="2">
+                <button class="stage__head" type="button" aria-expanded="false">
+                  <span class="stage__num">2b</span>
+                  <span class="stage__title"><strong>转写</strong><small>Whisper</small></span>
+                  <span class="stage__state"><i></i><span>待机</span></span>
+                  <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
+                </button>
+                <p class="stage__desc">Whisper 单路串行（占 GPU），输出带时间轴字幕。</p>
+                <div class="stage__detail">
+                  <dl><div><dt>语言</dt><dd data-stage-metric>—</dd></div><div><dt>设备</dt><dd>CUDA</dd></div></dl>
+                  <p class="stage__log" data-stage-log>等待语音识别。</p>
+                </div>
+              </article>
+            </div>
+            <article class="stage" data-stage="3">
+              <button class="stage__head" type="button" aria-expanded="false">
+                <span class="stage__num">3</span>
+                <span class="stage__title"><strong>合并</strong><small>Merge</small></span>
+                <span class="stage__state"><i></i><span>待机</span></span>
+                <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
+              </button>
+              <p class="stage__desc">视觉摘要与字幕对齐，合成结构化上下文。</p>
+              <div class="stage__detail">
+                <dl><div><dt>字幕</dt><dd data-stage-metric>—</dd></div><div><dt>上下文</dt><dd>2.4k tokens</dd></div></dl>
+                <p class="stage__log" data-stage-log>等待上下文合并。</p>
+              </div>
+            </article>
+            <article class="stage" data-stage="4">
+              <button class="stage__head" type="button" aria-expanded="false">
+                <span class="stage__num">4</span>
+                <span class="stage__title"><strong>AI 分析</strong><small>Reasoning</small></span>
+                <span class="stage__state"><i></i><span>待机</span></span>
+                <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
+              </button>
+              <p class="stage__desc">多模态模型提炼主题、标题、简介与标签。</p>
+              <div class="stage__detail">
+                <dl><div><dt>模型</dt><dd data-stage-metric>—</dd></div><div><dt>置信度</dt><dd>—</dd></div></dl>
+                <p class="stage__log" data-stage-log>等待模型返回。</p>
+              </div>
+            </article>
+            <article class="stage" data-stage="5">
+              <button class="stage__head" type="button" aria-expanded="false">
+                <span class="stage__num">5</span>
+                <span class="stage__title"><strong>落盘</strong><small>Commit</small></span>
+                <span class="stage__state"><i></i><span>待机</span></span>
+                <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
+              </button>
+              <p class="stage__desc">写入元数据、重命名文件，并按规则输出 NFO / SRT。</p>
+              <div class="stage__detail">
+                <dl><div><dt>输出</dt><dd data-stage-metric>—</dd></div><div><dt>冲突</dt><dd>自动加后缀</dd></div></dl>
+                <p class="stage__log" data-stage-log>等待写入磁盘。</p>
+              </div>
+            </article>
+          </div>
+          <div class="pipeline__foot">
+            <span><svg class="icon"><use href="#i-info"/></svg>点击任一阶段查看该阶段指标与最近日志</span>
+            <button class="btn btn--ghost btn--sm" type="button" data-nav="logs">完整日志<svg class="icon"><use href="#i-arrow-right"/></svg></button>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="approvals" aria-labelledby="approvals-title" hidden>
+        <div class="page-head">
+          <div class="page-head__copy">
+            <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot"></span> Human in the loop</p>
+            <h1 id="approvals-title" class="reveal" style="--i:1">命名审批<span class="title-glow">.</span></h1>
+            <p class="page-head__sub reveal" style="--i:2">AI 给出建议，你保留最终决定权。可直接编辑名称，或整批通过。</p>
+          </div>
+          <div class="page-head__actions reveal" style="--i:3">
+            <button class="btn btn--soft" type="button" data-approve-all>
+              <svg class="icon"><use href="#i-check"/></svg>全部通过
+            </button>
+            <button class="btn btn--ghost" type="button" data-skip-all>
+              <svg class="icon"><use href="#i-skip"/></svg>全部忽略
+            </button>
+          </div>
+        </div>
+
+        <div class="approval-summary reveal" style="--i:4">
+          <div class="approval-summary__item">
+            <span class="dot dot--amber"></span><small>待审批</small><strong data-approval-pending>0</strong>
+          </div>
+          <div class="approval-summary__item">
+            <span class="dot dot--green"></span><small>已通过</small><strong data-approval-approved>0</strong>
+          </div>
+          <div class="approval-summary__item">
+            <span class="dot dot--slate"></span><small>已忽略</small><strong data-approval-skipped>0</strong>
+          </div>
+          <div class="approval-summary__spacer"></div>
+          <button class="btn btn--ghost btn--sm" type="button" data-approval-undo hidden>
+            <svg class="icon"><use href="#i-undo"/></svg>撤销上一步
+          </button>
+        </div>
+
+        <section class="card approval-card reveal" style="--i:5">
+          <div class="approval-card__head">
+            <span class="section-label">待处理建议</span>
+            <span class="muted mono" data-approval-caption>0 条建议</span>
+          </div>
+          <div class="approval-list" data-approval-list></div>
+          <div class="approval-empty" data-approval-empty hidden>
+            <div class="empty-orb"><svg class="icon"><use href="#i-check"/></svg></div>
+            <h3>全部处理完了</h3>
+            <p>命名建议已应用。可以回到工作台继续添加素材，或在日志里查看完整记录。</p>
+            <button class="btn btn--primary" type="button" data-nav="workbench">
+              回到工作台<svg class="icon"><use href="#i-arrow-right"/></svg>
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="logs" aria-labelledby="logs-title" hidden>
+        <div class="page-head">
+          <div class="page-head__copy">
+            <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot"></span> Console</p>
+            <h1 id="logs-title" class="reveal" style="--i:1">运行日志<span class="title-glow">.</span></h1>
+            <p class="page-head__sub reveal" style="--i:2">每个功能、模型、处理过程的完整记录；单文件推理耗时见下方时间线。</p>
+          </div>
+          <div class="page-head__actions reveal" style="--i:3">
+            <button class="btn btn--ghost" type="button" data-export-logs>
+              <svg class="icon"><use href="#i-download"/></svg>导出
+            </button>
+          </div>
+        </div>
+
+        <section class="card log-card reveal" style="--i:4">
+          <div class="log-toolbar">
+            <div class="segmented" role="tablist" aria-label="日志级别">
+              <span class="segmented__thumb" aria-hidden="true"></span>
+              <button type="button" class="segmented__item is-active" data-level="all" role="tab" aria-selected="true">ALL</button>
+              <button type="button" class="segmented__item" data-level="debug" role="tab" aria-selected="false">DEBUG</button>
+              <button type="button" class="segmented__item" data-level="info" role="tab" aria-selected="false">INFO</button>
+              <button type="button" class="segmented__item" data-level="warn" role="tab" aria-selected="false">WARN</button>
+              <button type="button" class="segmented__item" data-level="error" role="tab" aria-selected="false">ERROR</button>
+            </div>
+            <label class="search-field">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <input type="search" placeholder="搜索日志关键字 / 文件名" aria-label="搜索日志" data-log-search>
+              <button type="button" class="search-field__clear" aria-label="清除搜索" data-log-search-clear hidden><svg class="icon"><use href="#i-x"/></svg></button>
+            </label>
+            <label class="checkline">
+              <input type="checkbox" checked data-autoscroll>
+              <span class="checkline__box"><svg class="icon"><use href="#i-check"/></svg></span>
+              自动滚动
+            </label>
+            <button class="btn btn--ghost btn--sm" type="button" data-clear-logs>清空</button>
+          </div>
+          <div class="console" data-console tabindex="0" aria-label="日志输出">
+            <div class="console__empty" data-console-empty>
+              <span class="console__prompt">vair ~</span>
+              <p>暂无日志。开始处理任务后，这里会实时输出。</p>
+            </div>
+            <div class="console__lines" data-console-lines></div>
+          </div>
+          <div class="log-card__foot">
+            <span class="mono" data-log-count>0 条记录</span>
+            <span class="mono muted">缓冲区 240 条 · 本地时间</span>
+          </div>
+        </section>
+
+        <section class="card timeline-card reveal" style="--i:5">
+          <div class="card__head">
+            <div>
+              <p class="section-label">Timeline</p>
+              <h2 class="card__title">单文件推理时间线</h2>
+            </div>
+            <p class="card__note">模型名 · 帧数 · 字幕字数 · 端到端耗时</p>
+          </div>
+          <div class="timeline-list" data-timeline>
+            <div class="timeline-empty" data-timeline-empty>暂无单文件推理记录</div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" data-view="settings" aria-labelledby="settings-title" hidden>
+        <div class="page-head">
+          <div class="page-head__copy">
+            <p class="eyebrow reveal" style="--i:0"><span class="eyebrow__dot"></span> Preferences</p>
+            <h1 id="settings-title" class="reveal" style="--i:1">设置<span class="title-glow">.</span></h1>
+            <p class="page-head__sub reveal" style="--i:2">配置一次即可长期使用。所有修改都保存在本地 <span class="mono">config.json</span>。</p>
+          </div>
+          <div class="page-head__actions reveal" style="--i:3">
+            <button class="btn btn--ghost" type="button" data-open-config>
+              <svg class="icon"><use href="#i-external"/></svg>打开配置文件
+            </button>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <nav class="settings-nav glass reveal" style="--i:4" aria-label="设置分类">
+            <button class="settings-nav__item is-active" type="button" data-settings-tab="engine">
+              <svg class="icon"><use href="#i-cpu"/></svg><span>引擎与输入</span>
+            </button>
+            <button class="settings-nav__item" type="button" data-settings-tab="naming">
+              <svg class="icon"><use href="#i-wand"/></svg><span>命名与输出</span>
+            </button>
+            <button class="settings-nav__item" type="button" data-settings-tab="ai">
+              <svg class="icon"><use href="#i-sparkles"/></svg><span>AI 与提示词</span>
+            </button>
+            <button class="settings-nav__item" type="button" data-settings-tab="system">
+              <svg class="icon"><use href="#i-sliders"/></svg><span>系统与依赖</span>
+            </button>
+            <button class="settings-nav__item" type="button" data-settings-tab="glossary">
+              <svg class="icon"><use href="#i-layers"/></svg><span>术语表</span>
+            </button>
+            <div class="settings-nav__foot">
+              <span class="dot dot--green"></span>
+              <span>配置已同步</span>
+            </div>
+          </nav>
+
+          <div class="settings-panels">
+            <div class="settings-head reveal" style="--i:5">
+              <div class="settings-head__icon"><svg class="icon" data-settings-icon><use href="#i-cpu"/></svg></div>
+              <div class="settings-head__copy">
+                <h2 data-settings-title>引擎与输入</h2>
+                <p data-settings-desc>管理素材目录、转写与硬件加速。</p>
+              </div>
+              <span class="settings-head__hint"><kbd>Ctrl</kbd><kbd>S</kbd> 保存</span>
+            </div>
+
+            <section class="settings-panel is-active reveal" style="--i:5" data-settings-panel="engine">
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-folder"/></svg></div>
+                  <div><h2>输入</h2><p>选择默认素材目录，任务会递归扫描子文件夹。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>默认素材文件夹</strong><small>拖入文件夹时优先使用此目录的命名规则</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <div class="input-with-action">
+                      <input class="input mono" type="text" value="D:\素材\待整理" aria-label="默认素材文件夹">
+                      <button class="btn btn--soft btn--sm" type="button">浏览</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-cpu"/></svg></div>
+                  <div><h2>引擎</h2><p>控制识别、加速与静音检测行为。</p></div>
+                  <span class="settings-card__tag">GPU 已就绪</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>启用 Whisper 转写</strong><small>关闭后仅使用视觉与元数据命名</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="启用 Whisper 转写"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>优先使用 API 进行 ASR</strong><small>开启后云端转写优先，失败自动回退本地</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="优先使用 API 进行 ASR"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>GPU 编码加速</strong><small>使用 NVENC / CUDA 处理抽帧与转码</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="GPU 编码加速"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>VAD 过滤</strong><small>跳过静音片段，减少无效转写</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="VAD 过滤"><span></span></button></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-panel reveal" style="--i:5" data-settings-panel="naming" hidden>
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-wand"/></svg></div>
+                  <div><h2>命名</h2><p>决定输出文件名的结构与冲突处理方式。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>启用智能命名</strong><small>由 AI 生成可读标题，而非原始时间戳</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="启用智能命名"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>命名模板</strong><small>可用变量：{date} {title} {tags} {author}</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" value="{date}_{title}" aria-label="命名模板">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>冲突处理</strong><small>同名文件已存在时的策略</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="冲突处理">
+                      <option>自动追加序号</option><option>覆盖原文件</option><option>跳过并记录</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>文件名长度上限</strong><small>超出部分自动截断，避免路径过长</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="40" max="180" value="96" aria-label="文件名长度上限">
+                    <output class="mono">96</output>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-layers"/></svg></div>
+                  <div><h2>输出</h2><p>选择随视频一起生成的附属文件。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>生成 NFO</strong><small>供 Emby / Jellyfin / Kodi 读取</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="生成 NFO"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>生成 SRT 字幕</strong><small>保留 Whisper 原始时间轴</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="生成 SRT 字幕"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>生成缩略图</strong><small>抽取关键帧并写入视频封面</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="false" aria-label="生成缩略图"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>输出目录</strong><small>留空则与源文件同目录</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" placeholder="与源文件同目录" aria-label="输出目录">
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-panel reveal" style="--i:5" data-settings-panel="ai" hidden>
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
+                  <div><h2>AI 配置</h2><p>用于生成标题、简介、标签与结构化元数据。</p></div>
+                  <span class="settings-card__tag settings-card__tag--cyan">连接正常</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>服务商</strong><small>兼容 OpenAI 协议的服务均可接入</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="服务商"><option>OpenAI 兼容</option><option>Azure OpenAI</option><option>本地 Ollama</option></select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>Base URL</strong><small>不含 /v1 也可，引擎会自动补齐</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" value="http://127.0.0.1:8084/v1" aria-label="Base URL">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>API Key</strong><small>仅保存在本地配置文件</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <div class="input-with-action">
+                      <input class="input mono" type="password" value="sk-vair-local-demo-key" aria-label="API Key" data-secret>
+                      <button class="btn btn--ghost btn--icon" type="button" aria-label="显示密钥" data-toggle-secret><svg class="icon"><use href="#i-eye"/></svg></button>
+                    </div>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>模型</strong><small>推荐支持视觉输入的通用模型</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" value="qwen2.5-vl-72b-instruct" aria-label="模型">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>温度</strong><small>越低越稳定，越高越发散</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="0" max="100" value="30" aria-label="温度">
+                    <output class="mono">0.30</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>最大输出</strong><small>单次响应 token 上限</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" value="2048" aria-label="最大输出">
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-wand"/></svg></div>
+                  <div><h2>系统提示词</h2><p>定义 AI 的命名风格与输出结构。</p></div>
+                  <button class="btn btn--ghost btn--sm" type="button" data-reset-prompt><svg class="icon"><use href="#i-refresh"/></svg>恢复默认</button>
+                </div>
+                <div class="prompt-box">
+                  <textarea class="textarea" rows="7" aria-label="系统提示词" data-prompt>你是专业的视频素材命名助手。请根据提供的画面描述与字幕内容，输出简洁、可检索的中文标题。标题控制在 8–18 个字，不使用标点与表情，优先包含主体、动作与场景。仅输出 JSON，不要解释。</textarea>
+                  <div class="prompt-box__foot"><span>支持变量与 JSON Schema 输出</span><span class="mono" data-prompt-count>0 / 1200</span></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-panel reveal" style="--i:5" data-settings-panel="system" hidden>
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-sliders"/></svg></div>
+                  <div><h2>并发与性能</h2><p>根据机器性能调整，过高会争抢显存。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>抽帧并发数</strong><small>同时处理的视频数量</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="16" value="4" aria-label="抽帧并发数">
+                    <output class="mono">4</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>GPU 显存上限</strong><small>超过阈值时自动排队</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="24" value="8" aria-label="GPU 显存上限">
+                    <output class="mono">8 GB</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>日志级别</strong><small>调试时建议开启 DEBUG</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="日志级别"><option>INFO</option><option>DEBUG</option><option>WARN</option></select>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-shield"/></svg></div>
+                  <div><h2>安全</h2><p>控制本地数据与远程请求的边界。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>仅本地推理</strong><small>禁止任何素材帧与文本离开设备</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="false" aria-label="仅本地推理"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>自动更新</strong><small>启动时检查新版本，静默下载</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动更新"><span></span></button></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>匿名使用统计</strong><small>仅上报功能调用次数，不含文件名</small></div>
+                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="false" aria-label="匿名使用统计"><span></span></button></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-panel reveal" style="--i:5" data-settings-panel="glossary" hidden>
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-layers"/></svg></div>
+                  <div><h2>术语表</h2><p>把行业黑话映射成 AI 能理解的表达，提升命名准确率。</p></div>
+                  <button class="btn btn--soft btn--sm" type="button" data-add-term><svg class="icon"><use href="#i-plus"/></svg>新增</button>
+                </div>
+                <div class="glossary" data-glossary>
+                  <div class="glossary__row"><span class="mono">口播</span><span>出镜人物直接对镜头讲话的片段</span></div>
+                  <div class="glossary__row"><span class="mono">空镜</span><span>无人物主体的环境或氛围镜头</span></div>
+                  <div class="glossary__row"><span class="mono">B-roll</span><span>用于转场或补充说明的辅助画面</span></div>
+                  <div class="glossary__row"><span class="mono">A-roll</span><span>承载主要叙事的核心镜头</span></div>
+                  <div class="glossary__row"><span class="mono">转场</span><span>两个场景之间的过渡片段</span></div>
+                  <div class="glossary__row"><span class="mono">定妆</span><span>产品静态展示或细节特写</span></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast-stack" data-toasts aria-live="polite" aria-atomic="false"></div>
+
+  <div class="save-bar" data-save-bar aria-live="polite">
+    <div class="save-bar__inner">
+      <span class="save-bar__dot"></span>
+      <div class="save-bar__text">
+        <strong>有未保存的修改</strong>
+        <small>保存后会写入 config.json，下次启动自动生效</small>
+      </div>
+      <button class="btn btn--ghost btn--sm" type="button" data-reset-settings>重置</button>
+      <button class="btn btn--primary btn--sm" type="button" data-save-settings><span>保存修改</span></button>
+    </div>
+  </div>
+
+  <div class="palette" data-palette hidden>
+    <div class="palette__scrim" data-palette-close></div>
+    <div class="palette__panel" role="dialog" aria-modal="true" aria-labelledby="palette-title">
+      <div class="palette__search">
+        <svg class="icon"><use href="#i-search"/></svg>
+        <input type="text" id="palette-title" placeholder="搜索页面、操作或设置…" aria-label="搜索命令" data-palette-input autocomplete="off">
+        <kbd>ESC</kbd>
+      </div>
+      <div class="palette__list" data-palette-list></div>
+      <div class="palette__foot">
+        <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+        <span><kbd>↵</kbd> 打开</span>
+        <span><kbd>1</kbd>–<kbd>5</kbd> 快速切页</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js" defer></script>
+  <script src="js/workbench.js" defer></script>
+  <script src="js/realtime.js" defer></script>
+  <script src="js/approvals.js" defer></script>
+  <script src="js/logs.js" defer></script>
+  <script src="js/settings.js" defer></script>
+</body>
+</html>
