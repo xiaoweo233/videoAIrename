@@ -67,8 +67,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "frames": {
-        "max_keyframes": 10,        # 最多抽几帧给 AI 看
-        "max_side": 640,            # 缩放后最长边像素
+        "max_keyframes": 4,         # 默认 4 帧：12GB 显卡留出 ASR 共存的余量
+        "max_side": 512,            # 缩放后最长边像素
         "workers": 8,               # 同时跑几个 ffmpeg 抽帧
         "hwaccel": "none",          # none | cuda | d3d11va ...
     },
@@ -104,7 +104,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "dry_run": False,           # 预览模式：只演算不落盘
     },
     "runtime": {
-        "ai_workers": 4,            # 同时问 AI 几路
+        "ai_workers": 2,            # 同时问 AI 几路；12GB 显卡建议先保守一点
         "log_file": "logs/run.log",
         "verbose": False,           # 详细日志（DEBUG 级）
         "auto_install_cuda": True,  # 自动补 CUDA 库
@@ -117,8 +117,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # ---- 以下为本次新增：内置 AI 服务与「一键补齐」 ----
     "services": {
         "autostart": True,          # 后端启动时自动拉起 AI 服务
+        # 整批任务落盘结束后关掉 AI 服务，把显存/内存还给系统。
+        # 下次开始任务时后端会自动把它们重新拉起来（见 services.ensure_running）。
+        # 显存小的机器上这就是「一次只占一份」的开关；关掉则服务常驻，切任务更快。
+        "stop_after_task": True,
         "llama": {
             "enable": True,
+            # host 是内部项：内置服务只监听本机，要连别的机器请改 ai.base_url
             "host": "127.0.0.1",
             "port": 8084,
             "bin": "AI/llama-b12412-bin-win-cuda-13.5-x64/llama-server.exe",
@@ -126,6 +131,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "mmproj": "AI/models/Qwen3.8-9B/mmproj-BF16.gguf",
             "ctx_size": 8192,
             "gpu_layers": 99,
+            # 提示词缓存上限（MB）。llama.cpp 默认 8192，吃掉的是**系统内存**。
+            # 16GB 内存的机器上，9B 模型 + mmproj + ASR 模型一起驻留时，
+            # 8GB 的缓存根本分配不出来，日志会刷 "failed to allocate memory for
+            # prompt cache state: bad allocation" 然后退出。砍到 1GB 足够用。
+            "cache_ram": 1024,
+            # 并发槽数。llama.cpp 默认开 4 个槽，每个槽都按 ctx_size 预留 KV cache，
+            # 9B 模型下光 KV 就能吃掉好几 GB。本项目最多并发 2 路，1 个槽最省显存。
+            "parallel": 1,
             "extra_args": "",
         },
         "asr": {
@@ -136,7 +149,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
             # 模型路径按仓库根解析；留空则用 AI/models/Qwen 下的默认位置。
             "asr_model": "",
             "aligner_model": "",
-            "host": "127.0.0.1",
+            "host": "127.0.0.1",    # 内部项，同 llama.host
             "port": 7867,
             "extra_args": "",
         },
@@ -145,6 +158,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "auto_check": True,         # 启动时检查 AI 目录完整性
         "auto_fetch": False,        # 缺失时自动下载（体积大，默认关）
     },
+    # 术语表：行业黑话 → 模型能理解的表达，会拼进提问提示词
+    "glossary": [
+        {"term": "口播", "meaning": "出镜人物直接对镜头讲话的片段"},
+        {"term": "空镜", "meaning": "无人物主体的环境或氛围镜头"},
+        {"term": "B-roll", "meaning": "用于转场或补充说明的辅助画面"},
+        {"term": "A-roll", "meaning": "承载主要叙事的核心镜头"},
+    ],
 }
 
 
@@ -220,11 +240,31 @@ def _atomic_write(payload: dict[str, Any]) -> None:
     os.replace(tmp, paths.CONFIG_PATH)
 
 
+def _strip_defaults(cfg: dict[str, Any], defaults: dict[str, Any] | None = None) -> dict[str, Any]:
+    """只保留与默认值不同的项，再落盘。
+
+    这一步不是省空间，而是**让默认值的改进能到达老用户**：
+    如果把整份配置都写进 config.json，以后我们调优默认值（比如为省显存下调抽帧数），
+    老用户的文件里那份旧值会永久压住新默认值。只写差异，缺的字段就自动跟随新默认值。
+    """
+    defaults = DEFAULT_CONFIG if defaults is None else defaults
+    out: dict[str, Any] = {}
+    for key, value in (cfg or {}).items():
+        base = defaults.get(key)
+        if isinstance(value, dict) and isinstance(base, dict):
+            nested = _strip_defaults(value, base)
+            if nested:
+                out[key] = nested
+        elif value != base:
+            out[key] = copy.deepcopy(value)
+    return out
+
+
 def save(cfg: dict[str, Any]) -> dict[str, Any]:
-    """写入配置并刷新缓存。"""
+    """写入配置并刷新缓存。磁盘上只写与默认值的差异。"""
     global _cache
     with _lock:
-        _atomic_write(cfg)
+        _atomic_write(_strip_defaults(cfg))
         _cache = cfg
         return cfg
 

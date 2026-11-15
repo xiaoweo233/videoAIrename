@@ -82,10 +82,11 @@
     </a>
 
     <div class="topbar__right">
-      <button class="connection" type="button" data-toast="后端连接正常 · 延迟 12ms">
+      <button class="connection" type="button" data-conn="connecting" data-connection
+              aria-label="查看后端连接状态">
         <span class="connection__dot" aria-hidden="true"></span>
-        <span>已连接后端</span>
-        <span class="connection__meta">v2.4.1</span>
+        <span data-conn-label>连接中…</span>
+        <span class="connection__meta" data-conn-meta>—</span>
       </button>
       <button class="icon-btn icon-btn--ghost cmd-trigger" type="button" aria-label="打开快速跳转（Ctrl+K）" data-command-open>
         <svg class="icon"><use href="#i-command"/></svg>
@@ -191,17 +192,17 @@
               <svg class="icon drop-orb__icon"><use href="#i-file-video"/></svg>
             </div>
             <h2 class="dropzone__title">把视频或文件夹拖到这里</h2>
-            <p class="dropzone__desc">支持批量添加，自动递归扫描子目录 · 也可用系统窗口选择</p>
+            <p class="dropzone__desc">支持批量添加，自动递归扫描子目录 · 浏览器读不到拖入文件的真实路径，实际请用下方按钮选择</p>
             <form class="path-row" id="pathForm" autocomplete="off">
               <span class="path-row__icon"><svg class="icon"><use href="#i-folder-open"/></svg></span>
               <input class="path-row__input" id="pathInput" type="text" placeholder="也可直接粘贴路径，例如 D:\素材\产品视频" aria-label="素材路径">
               <button class="btn btn--soft btn--sm" type="submit">加入</button>
             </form>
             <div class="dropzone__actions">
-              <button class="btn btn--primary" type="button" data-add-sample>
+              <button class="btn btn--primary" type="button" data-pick-files>
                 <svg class="icon"><use href="#i-upload"/></svg>选择视频
               </button>
-              <button class="btn btn--soft" type="button" data-add-sample>
+              <button class="btn btn--soft" type="button" data-pick-folder>
                 <svg class="icon"><use href="#i-folder"/></svg>选择文件夹
               </button>
               <button class="btn btn--ghost btn--sm" type="button" data-clear-queue>
@@ -472,7 +473,7 @@
           </div>
           <div class="approval-summary__spacer"></div>
           <button class="btn btn--ghost btn--sm" type="button" data-approval-undo hidden>
-            <svg class="icon"><use href="#i-undo"/></svg>撤销上一步
+            <svg class="icon"><use href="#i-undo"/></svg>撤销忽略
           </button>
         </div>
 
@@ -538,7 +539,7 @@
           </div>
           <div class="log-card__foot">
             <span class="mono" data-log-count>0 条记录</span>
-            <span class="mono muted">缓冲区 240 条 · 本地时间</span>
+            <span class="mono muted" data-log-buffer>缓冲区 400 条</span>
           </div>
         </section>
 
@@ -607,15 +608,188 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-folder"/></svg></div>
-                  <div><h2>输入</h2><p>选择默认素材目录，任务会递归扫描子文件夹。</p></div>
+                  <div><h2>输入</h2><p>决定添加文件夹时扫描到第几层。</p></div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>默认素材文件夹</strong><small>拖入文件夹时优先使用此目录的命名规则</small></div>
+                  <div class="setting-row__label"><strong>递归扫描子文件夹</strong><small>关闭后只处理所选目录第一层的视频</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="递归扫描子文件夹" data-cfg="input.recursive" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-wave"/></svg></div>
+                  <div><h2>语音转写</h2><p>本地 faster-whisper 与远程接口的取舍。</p></div>
+                  <span class="settings-card__tag" data-whisper-tag>未检测</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>启用语音转写</strong><small>关闭后只靠画面与元数据命名，速度更快</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="启用语音转写" data-cfg="whisper.enable" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>转写方式</strong><small>auto 会先试远程接口，不可用再落到本地模型</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="转写方式" data-cfg="whisper.backend">
+                      <option value="auto">自动（远程优先，回退本地）</option>
+                      <option value="api">只用远程接口</option>
+                      <option value="local">只用本地模型</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>优先使用远程接口</strong><small>远程通常比本地快，且不占显存</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="优先使用远程接口" data-cfg="whisper.prefer_api" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>本地模型缺失时自动下载</strong><small>会从镜像站拉取，几百 MB 到 1.5 GB</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="本地模型缺失时自动下载" data-cfg="whisper.allow_download" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>本地模型</strong><small>faster-whisper 的模型名或本地目录</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="本地转写模型" data-cfg="whisper.model" placeholder="large-v3-turbo">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>计算设备</strong><small>auto 会优先用 CUDA，显卡不可用时回落 CPU</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="计算设备" data-cfg="whisper.device">
+                      <option value="auto">自动</option>
+                      <option value="cuda">CUDA（显卡）</option>
+                      <option value="cpu">CPU</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>计算精度</strong><small>显存不够时降到 int8，精度换空间</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="计算精度" data-cfg="whisper.compute_type">
+                      <option value="int8_float16">int8_float16（推荐）</option>
+                      <option value="float16">float16</option>
+                      <option value="int8">int8</option>
+                      <option value="int8_float32">int8_float32</option>
+                      <option value="float32">float32</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>并行转写数</strong><small>本地模型会串行占用显卡，这里主要影响远程接口</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="16" step="1" aria-label="并行转写数" data-cfg="whisper.workers" data-cfg-type="number"><output class="mono">4</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>VAD 过滤</strong><small>跳过静音片段，减少无效转写与幻觉</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="VAD 过滤" data-cfg="whisper.vad_filter" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>转写语言</strong><small>指定语言比自动识别更准，也更快</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="转写语言" data-cfg="whisper.language">
+                      <option value="zh">中文</option>
+                      <option value="auto">自动识别</option>
+                      <option value="en">English</option>
+                      <option value="yue">粤语</option>
+                      <option value="ja">日本語</option>
+                      <option value="ko">한국어</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>本地转写使用显卡</strong><small>关闭后即使有显卡也走 CPU（很慢）</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="本地转写使用显卡" data-cfg="whisper.use_gpu" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="test-out" data-whisper-test-out hidden></div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>转写链路自检</strong><small>「真实转写测试」会合成一句话跑完整链路，冷启动可能要几十秒</small></div>
+                  <div class="setting-row__control">
+                    <button class="btn btn--ghost btn--sm" type="button" data-action="whisper-probe">探测服务</button>
+                    <button class="btn btn--soft btn--sm" type="button" data-action="whisper-test">真实转写测试</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
+                  <div><h2>远程转写接口</h2><p>默认指向本项目内置的 Qwen3-ASR 服务，换别的服务也能接。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>协议</strong><small>Qwen3-ASR 走 gradio；OpenAI 兼容服务走 openai</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="转写接口协议" data-cfg="whisper.api.protocol">
+                      <option value="gradio">Gradio</option>
+                      <option value="openai">OpenAI 兼容</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>接口地址</strong><small>不带路径，只到主机与端口</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="转写接口地址" data-cfg="whisper.api.base_url" placeholder="http://127.0.0.1:7867">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>接口密钥</strong><small>仅保存在本机 config.json</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <div class="input-with-action">
-                      <input class="input mono" type="text" value="D:\素材\待整理" aria-label="默认素材文件夹">
-                      <button class="btn btn--soft btn--sm" type="button">浏览</button>
+                      <input class="input mono" type="password" aria-label="转写接口密钥" data-cfg="whisper.api.api_key" data-secret autocomplete="off">
+                      <button class="btn btn--ghost btn--icon" type="button" aria-label="显示密钥" data-toggle-secret><svg class="icon"><use href="#i-eye"/></svg></button>
                     </div>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>模型名</strong><small>仅 OpenAI 兼容协议需要填</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="转写模型名" data-cfg="whisper.api.model" placeholder="whisper-1">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>请求超时</strong><small>长视频转写要留足时间，单位秒</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="10" max="3600" step="10" aria-label="转写请求超时" data-cfg="whisper.api.timeout" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>转写提示词</strong><small>喂给模型的领域词汇，能显著减少同音错字</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="转写提示词" data-cfg="whisper.api.prompt" placeholder="例如：口播、空镜、B-roll">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>输出热词</strong><small>逗号分隔，强制模型优先识别这些词</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="输出热词" data-cfg="whisper.api.hotwords" placeholder="产品名、人名、专有名词">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>说话人分离</strong><small>区分不同说话人，需要服务端支持</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="说话人分离" data-cfg="whisper.api.diarize" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>单句最大字数</strong><small>超过就切句，字幕更好读</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="8" max="80" step="1" aria-label="单句最大字数" data-cfg="whisper.api.max_chars" data-cfg-type="number" data-suffix=" 字"><output class="mono">20 字</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>自动断句与标点</strong><small>关闭后 SRT 会是一整段没有标点的文本</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动断句与标点" data-cfg="whisper.api.punc" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
               </div>
@@ -623,24 +797,36 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-cpu"/></svg></div>
-                  <div><h2>引擎</h2><p>控制识别、加速与静音检测行为。</p></div>
-                  <span class="settings-card__tag">GPU 已就绪</span>
+                  <div><h2>抽帧</h2><p>交给视觉模型的画面数量与清晰度，直接决定显存占用。</p></div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>启用 Whisper 转写</strong><small>关闭后仅使用视觉与元数据命名</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="启用 Whisper 转写"><span></span></button></div>
+                  <div class="setting-row__label"><strong>每个视频最多抽几帧</strong><small>帧数越多看得越全，但显存与耗时线性上升</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="30" step="1" aria-label="最多抽帧数" data-cfg="frames.max_keyframes" data-cfg-type="number" data-suffix=" 帧"><output class="mono">10 帧</output>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>优先使用 API 进行 ASR</strong><small>开启后云端转写优先，失败自动回退本地</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="优先使用 API 进行 ASR"><span></span></button></div>
+                  <div class="setting-row__label"><strong>缩放过后的最长边</strong><small>越大越清晰，显存也越吃紧</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="256" max="1536" step="32" aria-label="缩放过后的最长边" data-cfg="frames.max_side" data-cfg-type="number" data-suffix=" px"><output class="mono">640 px</output>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>GPU 编码加速</strong><small>使用 NVENC / CUDA 处理抽帧与转码</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="GPU 编码加速"><span></span></button></div>
+                  <div class="setting-row__label"><strong>抽帧并发数</strong><small>同时跑几个 ffmpeg，机械硬盘上别开太大</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="16" step="1" aria-label="抽帧并发数" data-cfg="frames.workers" data-cfg-type="number" data-suffix=" 路"><output class="mono">8 路</output>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>VAD 过滤</strong><small>跳过静音片段，减少无效转写</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="VAD 过滤"><span></span></button></div>
+                  <div class="setting-row__label"><strong>硬件解码</strong><small>抽帧时用显卡解码，CPU 占用更低</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="硬件解码" data-cfg="frames.hwaccel">
+                      <option value="none">不使用</option>
+                      <option value="cuda">CUDA</option>
+                      <option value="d3d11va">D3D11VA</option>
+                      <option value="dxva2">DXVA2</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </section>
@@ -649,31 +835,53 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-wand"/></svg></div>
-                  <div><h2>命名</h2><p>决定输出文件名的结构与冲突处理方式。</p></div>
+                  <div><h2>命名</h2><p>决定输出文件名的结构，改完下面会立刻给出预览。</p></div>
+                  <span class="settings-card__tag" data-naming-tag>预览</span>
+                </div>
+                <div class="name-preview">
+                  <svg class="icon"><use href="#i-file-video"/></svg>
+                  <span data-naming-preview>—</span>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>启用智能命名</strong><small>由 AI 生成可读标题，而非原始时间戳</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="启用智能命名"><span></span></button></div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>命名模板</strong><small>可用变量：{date} {title} {tags} {author}</small></div>
+                  <div class="setting-row__label"><strong>命名模板</strong><small>可用变量：{date} · {title} · {original} · {marker}</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" value="{date}_{title}" aria-label="命名模板">
+                    <input class="input mono" type="text" aria-label="命名模板" data-cfg="naming.template" data-naming-preview-source placeholder="{date}_{title}">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>冲突处理</strong><small>同名文件已存在时的策略</small></div>
+                  <div class="setting-row__label"><strong>日期格式</strong><small>按 strftime 写法，例如 %Y%m%d_%H%M</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="日期格式" data-cfg="naming.date_format" data-naming-preview-source placeholder="%Y%m%d_%H%M">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>带时间前缀</strong><small>关闭后模板里的 {date} 会被忽略</small></div>
                   <div class="setting-row__control">
-                    <select class="select" aria-label="冲突处理">
-                      <option>自动追加序号</option><option>覆盖原文件</option><option>跳过并记录</option>
-                    </select>
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="带时间前缀" data-cfg="naming.include_date" data-cfg-type="bool" data-naming-preview-source><span></span></button>
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>文件名长度上限</strong><small>超出部分自动截断，避免路径过长</small></div>
-                  <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="40" max="180" value="96" aria-label="文件名长度上限">
-                    <output class="mono">96</output>
+                  <div class="setting-row__label"><strong>保留原始文件名</strong><small>把原文件名追加到新名字末尾，便于回溯</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="保留原始文件名" data-cfg="naming.include_original" data-cfg-type="bool" data-naming-preview-source><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>处理标记</strong><small>写进文件名的标记，也是「跳过已处理」的判据</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="处理标记" data-cfg="naming.marker" data-naming-preview-source placeholder="AI_RENAMED">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>文件名带处理标记</strong><small>一眼看出这个文件是工具整理过的</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="文件名带处理标记" data-cfg="naming.enable_marker" data-cfg-type="bool" data-naming-preview-source><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>跳过已处理的文件</strong><small>文件名含标记、或视频内部已写水印，都会直接跳过</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="跳过已处理的文件" data-cfg="naming.enable_skip" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
               </div>
@@ -682,23 +890,42 @@
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-layers"/></svg></div>
                   <div><h2>输出</h2><p>选择随视频一起生成的附属文件。</p></div>
+                  <span class="settings-card__tag" data-output-tag>写入磁盘</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>写入视频元数据</strong><small>标题、简介、标签写进视频内部（ExifTool），资源管理器属性面板可见</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="写入视频元数据" data-cfg="output.metadata" data-cfg-type="bool"><span></span></button>
+                  </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>生成 NFO</strong><small>供 Emby / Jellyfin / Kodi 读取</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="生成 NFO"><span></span></button></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="生成 NFO" data-cfg="output.nfo" data-cfg-type="bool"><span></span></button>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>生成 SRT 字幕</strong><small>保留 Whisper 原始时间轴</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="生成 SRT 字幕"><span></span></button></div>
+                  <div class="setting-row__label"><strong>生成 SRT 字幕</strong><small>保留转写的原始时间轴</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="生成 SRT 字幕" data-cfg="output.srt" data-cfg-type="bool"><span></span></button>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>生成缩略图</strong><small>抽取关键帧并写入视频封面</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="false" aria-label="生成缩略图"><span></span></button></div>
+                  <div class="setting-row__label"><strong>分片 MP4 自动重封装</strong><small>手机录制的分片文件很多播放器认不出，处理前先无损重封装一次</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="分片 MP4 自动重封装" data-cfg="output.remux_fragmented" data-cfg-type="bool"><span></span></button>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>输出目录</strong><small>留空则与源文件同目录</small></div>
-                  <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" placeholder="与源文件同目录" aria-label="输出目录">
+                  <div class="setting-row__label"><strong>失败文件移入 _failed</strong><small>便于集中排查，不想动原文件就关掉</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="失败文件移入 _failed" data-cfg="output.move_failed" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>预览模式（不落盘）</strong><small>只演算命名结果并推送到「命名审批」，改名与写元数据都跳过</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="预览模式" data-cfg="output.dry_run" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
               </div>
@@ -708,88 +935,229 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
-                  <div><h2>AI 配置</h2><p>用于生成标题、简介、标签与结构化元数据。</p></div>
-                  <span class="settings-card__tag settings-card__tag--cyan">连接正常</span>
+                  <div><h2>视觉模型接口</h2><p>默认指向本项目内置的 llama.cpp 服务，也可换成任何 OpenAI 兼容服务。</p></div>
+                  <span class="settings-card__tag settings-card__tag--cyan" data-ai-tag>未检测</span>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>服务商</strong><small>兼容 OpenAI 协议的服务均可接入</small></div>
+                  <div class="setting-row__label"><strong>协议</strong><small>目前只实现了 OpenAI 兼容协议</small></div>
                   <div class="setting-row__control">
-                    <select class="select" aria-label="服务商"><option>OpenAI 兼容</option><option>Azure OpenAI</option><option>本地 Ollama</option></select>
+                    <select class="select" aria-label="AI 协议" data-cfg="ai.provider">
+                      <option value="openai">OpenAI 兼容</option>
+                      <option value="gemini">Gemini（暂未实现）</option>
+                    </select>
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>Base URL</strong><small>不含 /v1 也可，引擎会自动补齐</small></div>
+                  <div class="setting-row__label"><strong>Base URL</strong><small>要带 /v1，例如 http://127.0.0.1:8084/v1</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" value="http://127.0.0.1:8084/v1" aria-label="Base URL">
+                    <input class="input mono" type="text" aria-label="AI 服务地址" data-cfg="ai.base_url" placeholder="http://127.0.0.1:8084/v1">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>API Key</strong><small>仅保存在本地配置文件</small></div>
+                  <div class="setting-row__label"><strong>API Key</strong><small>本地服务通常留空；仅保存在本机 config.json</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <div class="input-with-action">
-                      <input class="input mono" type="password" value="sk-vair-local-demo-key" aria-label="API Key" data-secret>
+                      <input class="input mono" type="password" aria-label="AI 服务密钥" data-cfg="ai.api_key" data-secret autocomplete="off">
                       <button class="btn btn--ghost btn--icon" type="button" aria-label="显示密钥" data-toggle-secret><svg class="icon"><use href="#i-eye"/></svg></button>
                     </div>
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>模型</strong><small>推荐支持视觉输入的通用模型</small></div>
+                  <div class="setting-row__label"><strong>模型名</strong><small>点「拉取模型」可列出服务端已加载的模型</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" value="qwen2.5-vl-72b-instruct" aria-label="模型">
+                    <div class="input-with-action">
+                      <input class="input mono" type="text" aria-label="AI 模型名" data-cfg="ai.model" list="ai-model-list" placeholder="Qwen3.8-9B">
+                      <button class="btn btn--ghost btn--sm" type="button" data-action="ai-models">拉取模型</button>
+                    </div>
+                    <datalist id="ai-model-list" data-ai-model-list></datalist>
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>温度</strong><small>越低越稳定，越高越发散</small></div>
-                  <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="0" max="100" value="30" aria-label="温度">
-                    <output class="mono">0.30</output>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>最大输出</strong><small>单次响应 token 上限</small></div>
+                  <div class="setting-row__label"><strong>请求超时</strong><small>本地模型冷启动偏慢，单位秒</small></div>
                   <div class="setting-row__control">
-                    <input class="input mono" type="number" value="2048" aria-label="最大输出">
+                    <input class="input mono" type="number" min="5" max="600" step="5" aria-label="AI 请求超时" data-cfg="ai.timeout" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>失败重试次数</strong><small>4xx 不重试，网络抖动与 5xx 才会退避重试</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="0" max="10" step="1" aria-label="失败重试次数" data-cfg="ai.retry_times" data-cfg-type="number" data-suffix=" 次"><output class="mono">2 次</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>最大输出</strong><small>单次响应 token 上限，写不下长简介就调大</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="128" max="32768" step="128" aria-label="最大输出 token" data-cfg="ai.max_tokens" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>温度</strong><small>越低越稳定可复现，越高越发散</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="0" max="2" step="0.05" aria-label="温度" data-cfg="ai.temperature" data-cfg-type="number" data-decimals="2"><output class="mono">0.60</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>Top P</strong><small>采样范围，一般 0.8 左右</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="0.05" max="1" step="0.05" aria-label="Top P" data-cfg="ai.top_p" data-cfg-type="number" data-decimals="2"><output class="mono">0.80</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>强制 JSON 输出</strong><small>让服务端保证返回合法 JSON，解析失败率大幅下降</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="强制 JSON 输出" data-cfg="ai.enforce_json_mode" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="test-out" data-ai-test-out hidden></div>
+                <div class="test-out" data-vram-hint hidden></div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>连接测试</strong><small>发一句话看模型是否真的能回，比只 ping 端口可靠</small></div>
+                  <div class="setting-row__control">
+                    <button class="btn btn--soft btn--sm" type="button" data-action="ai-test">测试连接</button>
                   </div>
                 </div>
               </div>
 
-              <div class="card settings-card">
+              <div class="card settings-card" data-service-card="llama">
                 <div class="settings-card__head">
-                  <div class="settings-card__icon"><svg class="icon"><use href="#i-wand"/></svg></div>
-                  <div><h2>系统提示词</h2><p>定义 AI 的命名风格与输出结构。</p></div>
-                  <button class="btn btn--ghost btn--sm" type="button" data-reset-prompt><svg class="icon"><use href="#i-refresh"/></svg>恢复默认</button>
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-cpu"/></svg></div>
+                  <div><h2>内置视觉服务（llama.cpp）</h2><p>本项目自带的推理引擎，用显卡跑 Qwen3.8-9B 看图写标题。</p></div>
+                  <span class="settings-card__tag" data-service-tag>未运行</span>
                 </div>
-                <div class="prompt-box">
-                  <textarea class="textarea" rows="7" aria-label="系统提示词" data-prompt>你是专业的视频素材命名助手。请根据提供的画面描述与字幕内容，输出简洁、可检索的中文标题。标题控制在 8–18 个字，不使用标点与表情，优先包含主体、动作与场景。仅输出 JSON，不要解释。</textarea>
-                  <div class="prompt-box__foot"><span>支持变量与 JSON Schema 输出</span><span class="mono" data-prompt-count>0 / 1200</span></div>
+                <div class="svc-bar">
+                  <span class="svc-bar__state"><span class="dot dot--slate" data-service-dot></span><span data-service-state>未运行</span></span>
+                  <span class="svc-bar__endpoint mono" data-service-endpoint>—</span>
+                  <span class="svc-bar__actions">
+                    <button class="btn btn--ghost btn--sm" type="button" data-service-action="start">启动</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-service-action="stop">停止</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-service-action="restart">重启</button>
+                  </span>
+                </div>
+                <details class="svc-logs">
+                  <summary>查看服务输出</summary>
+                  <pre class="svc-logs__pre" data-service-logs>（暂无输出）</pre>
+                </details>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>启动时自动拉起</strong><small>关掉后需要手动点「启动」，或自己在外面开服务</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动拉起视觉服务" data-cfg="services.llama.enable" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>监听端口</strong><small>和别的服务冲突时改这里</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="1" max="65535" aria-label="视觉服务端口" data-cfg="services.llama.port" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>llama-server 路径</strong><small>相对仓库根目录，缺失时用「补齐 AI 依赖与模型」下载</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="llama-server 路径" data-cfg="services.llama.bin">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>模型文件</strong><small>GGUF 权重路径</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="视觉模型路径" data-cfg="services.llama.model">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>视觉投影层</strong><small>mmproj 文件，缺了模型就看不到图</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="视觉投影层路径" data-cfg="services.llama.mmproj">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>上下文长度</strong><small>多帧图片很占上下文，报错「超长」就调小帧数</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="1024" max="131072" step="1024" aria-label="上下文长度" data-cfg="services.llama.ctx_size" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>提示词缓存上限</strong><small>单位 MB，占用的是<b>内存</b>不是显存。llama.cpp 默认给 8192，内存小的机器会报 bad allocation</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="0" max="16384" step="256" aria-label="提示词缓存上限 MB" data-cfg="services.llama.cache_ram" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>并发槽数</strong><small>每个槽都按上下文长度预留显存。1 最省显存，改完要重启服务</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="8" step="1" aria-label="并发槽数" data-cfg="services.llama.parallel" data-cfg-type="number" data-suffix=" 槽"><output class="mono">1 槽</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>卸载到显卡的层数</strong><small>99 表示全部交给显卡；显存不够就调小</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="0" max="99" step="1" aria-label="卸载到显卡的层数" data-cfg="services.llama.gpu_layers" data-cfg-type="number" data-suffix=" 层"><output class="mono">99 层</output>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>附加启动参数</strong><small>按空格分隔，会原样追加到命令行末尾</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="附加启动参数" data-cfg="services.llama.extra_args" placeholder="--flash-attn --no-mmap">
+                  </div>
                 </div>
               </div>
-            </section>
 
-            <section class="settings-panel reveal" style="--i:5" data-settings-panel="system" hidden>
-              <div class="card settings-card">
+              <div class="card settings-card" data-service-card="asr">
                 <div class="settings-card__head">
-                  <div class="settings-card__icon"><svg class="icon"><use href="#i-sliders"/></svg></div>
-                  <div><h2>并发与性能</h2><p>根据机器性能调整，过高会争抢显存。</p></div>
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-wave"/></svg></div>
+                  <div><h2>内置语音转写服务（Qwen3-ASR）</h2><p>独立项目，带自己的便携 Python，本项目只负责把它拉起来。</p></div>
+                  <span class="settings-card__tag" data-service-tag>未运行</span>
                 </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>抽帧并发数</strong><small>同时处理的视频数量</small></div>
-                  <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="16" value="4" aria-label="抽帧并发数">
-                    <output class="mono">4</output>
-                  </div>
+                <div class="svc-bar">
+                  <span class="svc-bar__state"><span class="dot dot--slate" data-service-dot></span><span data-service-state>未运行</span></span>
+                  <span class="svc-bar__endpoint mono" data-service-endpoint>—</span>
+                  <span class="svc-bar__actions">
+                    <button class="btn btn--ghost btn--sm" type="button" data-service-action="start">启动</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-service-action="stop">停止</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-service-action="restart">重启</button>
+                  </span>
                 </div>
+                <details class="svc-logs">
+                  <summary>查看服务输出</summary>
+                  <pre class="svc-logs__pre" data-service-logs>（暂无输出）</pre>
+                </details>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>GPU 显存上限</strong><small>超过阈值时自动排队</small></div>
-                  <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="24" value="8" aria-label="GPU 显存上限">
-                    <output class="mono">8 GB</output>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>日志级别</strong><small>调试时建议开启 DEBUG</small></div>
+                  <div class="setting-row__label"><strong>启动时自动拉起</strong><small>关掉后需要手动点「启动」</small></div>
                   <div class="setting-row__control">
-                    <select class="select" aria-label="日志级别"><option>INFO</option><option>DEBUG</option><option>WARN</option></select>
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动拉起转写服务" data-cfg="services.asr.enable" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>项目目录</strong><small>Qwen3_ASR 所在目录，可用相对仓库根的路径</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="Qwen3-ASR 项目目录" data-cfg="services.asr.dir" placeholder="../Qwen3_ASR">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>Python 解释器</strong><small>留空则自动在项目目录下找 WPy64-*/python/python.exe</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="转写服务 Python 解释器" data-cfg="services.asr.python" placeholder="留空自动探测">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>识别模型目录</strong><small>留空则用本项目 AI/models 下的默认位置</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="识别模型目录" data-cfg="services.asr.asr_model" placeholder="留空用内置默认">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>对齐模型目录</strong><small>用于生成精确时间轴，留空用内置默认</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="对齐模型目录" data-cfg="services.asr.aligner_model" placeholder="留空用内置默认">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>监听端口</strong><small>改动后需要重启该服务</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="1" max="65535" aria-label="转写服务端口" data-cfg="services.asr.port" data-cfg-type="number">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>附加启动参数</strong><small>按空格分隔，追加到启动命令末尾</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="转写服务附加参数" data-cfg="services.asr.extra_args">
                   </div>
                 </div>
               </div>
@@ -797,19 +1165,180 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-shield"/></svg></div>
-                  <div><h2>安全</h2><p>控制本地数据与远程请求的边界。</p></div>
+                  <div><h2>系统提示词</h2><p>定义 AI 的角色与命名风格，改动即时生效。</p></div>
+                  <button class="btn btn--ghost btn--sm" type="button" data-reset-prompt="system"><svg class="icon"><use href="#i-refresh"/></svg>恢复默认</button>
+                </div>
+                <div class="prompt-box">
+                  <textarea class="textarea" rows="5" aria-label="系统提示词" data-cfg="ai.system_prompt" data-prompt="system"></textarea>
+                  <div class="prompt-box__foot"><span>设定角色与语气，越具体越稳</span><span class="mono" data-prompt-count="system">0 字</span></div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-wand"/></svg></div>
+                  <div><h2>提问提示词</h2><p>定义输出结构与字段要求，必须让它返回 JSON。</p></div>
+                  <button class="btn btn--ghost btn--sm" type="button" data-reset-prompt="prompt"><svg class="icon"><use href="#i-refresh"/></svg>恢复默认</button>
+                </div>
+                <div class="prompt-box">
+                  <textarea class="textarea" rows="10" aria-label="提问提示词" data-cfg="ai.prompt" data-prompt="prompt"></textarea>
+                  <div class="prompt-box__foot"><span>可用变量与 JSON Schema 说明</span><span class="mono" data-prompt-count="prompt">0 字</span></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="settings-panel reveal" style="--i:5" data-settings-panel="system" hidden>
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-download"/></svg></div>
+                  <div><h2>AI 依赖与模型</h2><p>拿到项目后先点这里补齐 —— 缺什么、要下多大，一目了然。</p></div>
+                  <span class="settings-card__tag" data-asset-tag>未检查</span>
+                </div>
+                <div class="asset-list" data-asset-list>
+                  <div class="asset-row" data-state="missing">
+                    <span class="asset-row__dot"></span>
+                    <div class="asset-row__main"><strong>尚未检查</strong><small>点击下方「检查缺失项」开始体检</small></div>
+                    <span class="asset-row__size"></span>
+                    <span class="asset-row__state">—</span>
+                  </div>
+                </div>
+                <div class="dl-bar" data-dl-bar hidden>
+                  <div class="dl-bar__head"><span data-dl-label>准备中…</span><span class="mono" data-dl-percent>0%</span></div>
+                  <div class="dl-bar__track"><span data-dl-fill></span></div>
+                </div>
+                <div class="test-out" data-bootstrap-out hidden></div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>补齐操作</strong><small>下载走镜像站，支持断点续传；大模型约 5 GB，请留出磁盘与时间</small></div>
+                  <div class="setting-row__control">
+                    <button class="btn btn--ghost btn--sm" type="button" data-action="asset-check">检查缺失项</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-action="deps-install">安装 Python 依赖</button>
+                    <button class="btn btn--primary btn--sm" type="button" data-action="asset-fetch">补齐缺失项</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-monitor"/></svg></div>
+                  <div><h2>运行环境</h2><p>后端启动时的自检结果：工具、显卡、Python 依赖。</p></div>
+                  <button class="btn btn--ghost btn--sm" type="button" data-action="runtime-refresh"><svg class="icon"><use href="#i-refresh"/></svg>重新检测</button>
+                </div>
+                <div class="kv-grid" data-runtime-report></div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-sliders"/></svg></div>
+                  <div><h2>并发与性能</h2><p>根据机器性能调整，过高会争抢显存。</p></div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>仅本地推理</strong><small>禁止任何素材帧与文本离开设备</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="false" aria-label="仅本地推理"><span></span></button></div>
+                  <div class="setting-row__label"><strong>同时处理的视频数</strong><small>每个视频都要占一份显存，12 GB 卡建议 2–4</small></div>
+                  <div class="setting-row__control setting-row__control--slider">
+                    <input class="range" type="range" min="1" max="16" step="1" aria-label="同时处理的视频数" data-cfg="runtime.ai_workers" data-cfg-type="number" data-suffix=" 个"><output class="mono">4 个</output>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>自动更新</strong><small>启动时检查新版本，静默下载</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动更新"><span></span></button></div>
+                  <div class="setting-row__label"><strong>详细日志</strong><small>开启后把模型原文、ffmpeg 命令等都记进日志，排查问题时有用</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="详细日志" data-cfg="runtime.verbose" data-cfg-type="bool"><span></span></button>
+                  </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>匿名使用统计</strong><small>仅上报功能调用次数，不含文件名</small></div>
-                  <div class="setting-row__control"><button class="switch" type="button" role="switch" aria-checked="false" aria-label="匿名使用统计"><span></span></button></div>
+                  <div class="setting-row__label"><strong>自动补 CUDA 运行库</strong><small>缺 cublas64_12.dll 时 ctranslate2 会静默挂起，装上更省心</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动补 CUDA 运行库" data-cfg="runtime.auto_install_cuda" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>日志文件</strong><small>相对仓库根目录，留空则不写文件</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="日志文件" data-cfg="runtime.log_file" placeholder="logs/run.log">
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-shield"/></svg></div>
+                  <div><h2>服务与访问</h2><p>改监听地址需要重启后端；局域网访客只能查看与审批，改不了配置。</p></div>
+                  <span class="settings-card__tag" data-restart-tag hidden>需重启生效</span>
+                </div>
+                <div class="kv-grid" data-server-info></div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>允许局域网访问</strong><small>手机、平板可以连上来查看进度与审批命名</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="允许局域网访问" data-cfg="runtime.lan" data-cfg-type="bool" data-restart-key><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>监听地址</strong><small>0.0.0.0 表示所有网卡，127.0.0.1 只允许本机</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="监听地址" data-cfg="runtime.host" data-restart-key placeholder="127.0.0.1">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>监听端口</strong><small>被占用时换成 8010、9000 之类</small></div>
+                  <div class="setting-row__control">
+                    <input class="input mono" type="number" min="1" max="65535" aria-label="监听端口" data-cfg="runtime.port" data-cfg-type="number" data-restart-key>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-zap"/></svg></div>
+                  <div><h2>启动行为</h2><p>后端起来之后自动做哪些事。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>自动拉起 AI 服务</strong><small>启动后端时顺手把视觉与转写服务一起带起来</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动拉起 AI 服务" data-cfg="services.autostart" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>处理完成后关闭 AI 服务</strong><small>整批文件落盘后自动释放显存与内存；下次开始任务时会自动重新拉起。显存小的机器建议开着</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="处理完成后关闭 AI 服务" data-cfg="services.stop_after_task" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>启动时自检 AI 资产</strong><small>只读检查，很快；缺失会在日志里提醒</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="启动时自检 AI 资产" data-cfg="bootstrap.auto_check" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>缺失时自动下载</strong><small>适合第一次部署：启动后自己把 5 GB 模型拉好，不用守着点按钮</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="缺失时自动下载" data-cfg="bootstrap.auto_fetch" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card settings-card">
+                <div class="settings-card__head">
+                  <div class="settings-card__icon"><svg class="icon"><use href="#i-external"/></svg></div>
+                  <div><h2>下载镜像</h2><p>国内网络建议用镜像站，点一下即填入。</p></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>PyPI 镜像</strong><small>安装 Python 依赖时使用</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="PyPI 镜像" data-cfg="runtime.pip_index">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>镜像预设</strong><small>点选后记得保存</small></div>
+                  <div class="setting-row__control"><div class="chip-row" data-pip-presets></div></div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>HuggingFace 镜像</strong><small>下载模型权重时使用</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="HuggingFace 镜像" data-cfg="runtime.hf_endpoint">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>镜像预设</strong><small>点选后记得保存</small></div>
+                  <div class="setting-row__control"><div class="chip-row" data-hf-presets></div></div>
                 </div>
               </div>
             </section>
@@ -818,17 +1347,11 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-layers"/></svg></div>
-                  <div><h2>术语表</h2><p>把行业黑话映射成 AI 能理解的表达，提升命名准确率。</p></div>
+                  <div><h2>术语表</h2><p>把行业黑话映射成 AI 能理解的表达，每次提问都会带上，改完保存即生效。</p></div>
                   <button class="btn btn--soft btn--sm" type="button" data-add-term><svg class="icon"><use href="#i-plus"/></svg>新增</button>
                 </div>
-                <div class="glossary" data-glossary>
-                  <div class="glossary__row"><span class="mono">口播</span><span>出镜人物直接对镜头讲话的片段</span></div>
-                  <div class="glossary__row"><span class="mono">空镜</span><span>无人物主体的环境或氛围镜头</span></div>
-                  <div class="glossary__row"><span class="mono">B-roll</span><span>用于转场或补充说明的辅助画面</span></div>
-                  <div class="glossary__row"><span class="mono">A-roll</span><span>承载主要叙事的核心镜头</span></div>
-                  <div class="glossary__row"><span class="mono">转场</span><span>两个场景之间的过渡片段</span></div>
-                  <div class="glossary__row"><span class="mono">定妆</span><span>产品静态展示或细节特写</span></div>
-                </div>
+                <div class="glossary" data-glossary></div>
+                <div class="glossary-empty" data-glossary-empty hidden>还没有术语。点右上角「新增」加一条。</div>
               </div>
             </section>
           </div>
@@ -869,6 +1392,7 @@
   </div>
 
   <script src="js/app.js" defer></script>
+  <script src="js/api.js" defer></script>
   <script src="js/workbench.js" defer></script>
   <script src="js/realtime.js" defer></script>
   <script src="js/approvals.js" defer></script>

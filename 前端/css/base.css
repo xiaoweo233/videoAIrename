@@ -538,6 +538,7 @@ kbd {
 .dot--amber { background: var(--amber); box-shadow: 0 0 8px rgba(251, 191, 36, 0.5); }
 .dot--slate { background: var(--text-4); }
 .dot--violet { background: var(--violet); box-shadow: 0 0 8px rgba(139, 124, 255, 0.6); }
+.dot--rose { background: var(--rose); box-shadow: 0 0 8px rgba(251, 113, 133, 0.55); }
 
 .glass {
   background: var(--surface);

@@ -104,7 +104,6 @@ $dlg.Title = '选择视频文件'
 $dlg.InitialDirectory = '{_ps_escape(start)}'
 $dlg.Filter = '视频文件 ({_VIDEO_FILTER})|{_VIDEO_FILTER}|所有文件 (*.*)|*.*'
 $dlg.Multiselect = $true
-$owner.Add_Shown({{ $dlg.ShowDialog($owner) | Out-Null }})
 $result = $dlg.ShowDialog($owner)
 if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
   $payload = @{{ ok = $true; cancelled = $false; paths = @($dlg.FileNames); error = '' }}

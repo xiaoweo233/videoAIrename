@@ -1080,3 +1080,48 @@
 body.is-locked {
   overflow: hidden;
 }
+
+/* ---- 连接状态：非正常态时换成琥珀/灰，别一直显示绿色骗人 ---- */
+.connection[data-conn="offline"] {
+  border-color: rgba(251, 191, 36, 0.32);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.connection[data-conn="offline"] .connection__dot {
+  background: var(--amber);
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.8);
+  animation: none;
+}
+
+.connection[data-conn="offline"] .connection__meta {
+  border-left-color: rgba(251, 191, 36, 0.25);
+  color: rgba(251, 191, 36, 0.7);
+}
+
+.connection[data-conn="offline"]:hover {
+  background: rgba(251, 191, 36, 0.16);
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.connection[data-conn="demo"] {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--text-3);
+}
+
+.connection[data-conn="demo"] .connection__dot {
+  background: var(--text-4);
+  box-shadow: none;
+  animation: none;
+}
+
+.connection[data-conn="demo"] .connection__meta {
+  border-left-color: var(--line);
+  color: var(--text-4);
+}
+
+.connection[data-conn="demo"]:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}

@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import os
 import socket
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -112,6 +114,28 @@ def reset_config() -> dict[str, Any]:
     bootstrap.apply_mirrors(cfg)
     hub.warn("配置已恢复默认值")
     return {"ok": True, "config": cfg}
+
+
+@router.post("/api/config/open")
+def open_config() -> dict[str, Any]:
+    """用系统默认程序打开 config.json，第一次点就先落盘一份。"""
+    if not paths.CONFIG_PATH.is_file():
+        try:
+            config_mod.save(config_mod.as_json())
+        except OSError as exc:
+            return {"ok": False, "message": f"无法生成配置文件：{exc}"}
+
+    target = paths.CONFIG_PATH
+    try:
+        if os.name == "nt":
+            os.startfile(str(target))                       # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target.parent)])
+    except OSError as exc:
+        return {"ok": False, "message": f"无法打开配置文件：{exc}", "path": str(target)}
+    return {"ok": True, "message": "已用系统默认程序打开 config.json", "path": str(target)}
 
 
 # ---------------------------------------------------------------- 运行时与网络
@@ -464,3 +488,38 @@ def add_middleware(app) -> None:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.middleware("http")(_locality_guard)
+
+
+# 局域网访问时，这些操作只在「本机」可用。
+# 理由：它们的作用域是**这台机器**，不是这个页面 —— 改监听地址、弹系统文件对话框、
+# 下载几 GB 模型、装 pip 包、开关本机进程。远程访客应该只能看状态、跑任务、做审批。
+_REMOTE_BLOCKED: tuple[tuple[str, str], ...] = (
+    ("PUT", "/api/config"),
+    ("POST", "/api/config/reset"),
+    ("POST", "/api/config/open"),
+    ("POST", "/api/dialog/"),
+    ("POST", "/api/bootstrap/"),
+    ("POST", "/api/services/"),
+    ("POST", "/api/logs/clear"),
+    ("POST", "/api/whisper/test"),
+)
+
+
+def _is_local(request: Request) -> bool:
+    host = (request.client.host if request.client else "") or ""
+    return host in ("127.0.0.1", "::1", "localhost", "testclient")
+
+
+async def _locality_guard(request: Request, call_next):
+    if request.method != "OPTIONS" and not _is_local(request):
+        path = request.url.path
+        for method, prefix in _REMOTE_BLOCKED:
+            if request.method == method and path.startswith(prefix):
+                hub.warn(f"已拒绝来自 {request.client.host} 的 {method} {path}"
+                         "（该操作仅限本机）")
+                return JSONResponse(
+                    {"detail": "该操作需要在这台电脑上操作（局域网访客只能查看状态、运行任务与审批）"},
+                    status_code=403,
+                )
+    return await call_next(request)

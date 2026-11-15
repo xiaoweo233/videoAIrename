@@ -124,6 +124,15 @@
     V.toast('日志已导出', state.logs.length + ' 条记录已保存为文本文件。', 'success');
   }
 
+  function renderFooter() {
+    var el = q('[data-log-buffer]');
+    if (!el) return;
+    var client = V.api;
+    el.textContent = (client && client.isLive())
+      ? '缓冲区 400 条 · 后端时间 · 实时推送'
+      : '缓冲区 400 条 · 演示模式（无后端连接）';
+  }
+
   function init() {
     var seg = q('.segmented');
     if (!seg) return;
@@ -168,6 +177,18 @@
         V.toast('日志已经是空的', '运行任务后会实时输出。', 'info');
         return;
       }
+      var client = V.api;
+      if (client && client.isLive()) {
+        // 后端也清一份，并广播给所有打开的页面
+        client.clearLogsOnServer().then(function () {
+          lastCount = 0;
+          render();
+          V.toast('日志已清空', '后续事件仍会继续记录。', 'success');
+        }).catch(function (err) {
+          V.toast('清空失败', client.errorText(err), 'error');
+        });
+        return;
+      }
       state.logs = [];
       lastCount = 0;
       render();
@@ -179,7 +200,12 @@
     V.bus.on('logs:update', function () {
       if (state.view === 'logs' || state.view === 'workbench') render();
     });
+    V.bus.on('logs:clear', function () {
+      lastCount = 0;
+      render();
+    });
     V.bus.on('timeline:update', renderTimeline);
+    V.bus.on('conn:change', renderFooter);
     V.bus.on('view:change', function (view) {
       if (view === 'logs') {
         render();
@@ -189,6 +215,7 @@
       }
     });
 
+    renderFooter();
     render();
     renderTimeline();
   }

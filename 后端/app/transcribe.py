@@ -405,7 +405,8 @@ class Transcriber:
                 return self._transcribe_gradio(audio_path, api, base, cfg, language)
             return self._transcribe_openai(audio_path, api, base, cfg, language)
         except Exception as exc:                    # noqa: BLE001
-            return TranscriptResult(source=protocol, model=str(api.get("model") or ""), error=str(exc))
+            return TranscriptResult(source=protocol, model=str(api.get("model") or ""),
+                                    error=_explain_connect_error(str(exc), base))
 
     def _transcribe_gradio(self, audio_path, api: dict, base: str, cfg: dict,
                            language: str | None) -> TranscriptResult:
@@ -415,15 +416,18 @@ class Transcriber:
         lang_arg = GRADIO_LANG_MAP.get(lang or "auto", "自动识别")
 
         client = Client(base, verbose=False)
-        out = client.predict(
-            handle_file(str(audio_path)),
-            lang_arg,
-            bool(api.get("diarize", False)),
-            max(5, int(api.get("max_chars") or 20)),
-            bool(api.get("punc", True)),
-            str(api.get("hotwords") or ""),
-            api_name="/single_handler",
-        )
+        try:
+            out = client.predict(
+                handle_file(str(audio_path)),
+                lang_arg,
+                bool(api.get("diarize", False)),
+                max(5, int(api.get("max_chars") or 20)),
+                bool(api.get("punc", True)),
+                str(api.get("hotwords") or ""),
+                api_name="/single_handler",
+            )
+        except Exception as exc:                    # noqa: BLE001
+            raise RuntimeError(_explain_gradio_error(str(exc))) from exc
 
         parts = list(out) if isinstance(out, (list, tuple)) else [out]
         parts += [None] * (4 - len(parts))
@@ -602,6 +606,44 @@ def _normalize_language(value: Any) -> str | None:
     if text in ("", "auto", "none", "自动", "自动识别"):
         return None
     return text
+
+
+def _explain_gradio_error(message: str) -> str:
+    """把 Gradio 的通用报错翻译成人能看懂的原因。
+
+    Gradio 默认不把服务端异常透出来，只给一句「raised an exception but has not
+    enabled verbose error reporting」，用户完全不知道是显存不够还是模型没加载。
+    这里针对本项目最常见的原因给出可操作的提示。
+    """
+    text = message or ""
+    low = text.lower()
+
+    if "out of memory" in low or "outofmemory" in low:
+        return ("显存不足：语音转写服务与视觉模型同时占卡。"
+                "请先在设置里把「并发槽数」设为 1、「每个视频最多抽几帧」降到 3–4，"
+                "或在跑转写前先停止视觉服务（llama.cpp）")
+    if "no such file" in low or "not found" in low:
+        return f"服务端找不到文件：{text[:200]}"
+    if "timed out" in low or "timeout" in low:
+        return "转写请求超时：服务可能还在加载模型，稍后重试或调大 whisper.api.timeout"
+
+    hint = ""
+    if "has not enabled verbose error reporting" in low:
+        hint = "（服务端未开启详细错误，具体原因需看 Qwen3_ASR 的启动日志）"
+    return f"远程转写服务报错{hint}：{text[:300]}"
+
+
+def _explain_connect_error(message: str, base: str) -> str:
+    """连接层的报错（服务没开、端口填错）跟转写本身无关，单独说清楚。"""
+    low = (message or "").lower()
+    if any(token in low for token in ("10061", "connection refused", "actively refused",
+                                      "connect call failed", "connection refused")):
+        return (f"转写服务没在运行（{base} 拒绝连接）。"
+                "如果刚跑完一批任务，服务可能已按「处理完成后关闭 AI 服务」释放；"
+                "开始任务时后端会自动重新拉起，也可以在设置 → AI 服务里手动启动。")
+    if any(token in low for token in ("10060", "timed out", "timeout")):
+        return f"连接转写服务超时（{base}）：服务可能还在加载模型，稍后重试"
+    return _explain_gradio_error(message)
 
 
 def _cuda_libs_present() -> bool:

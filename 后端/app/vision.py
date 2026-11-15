@@ -114,8 +114,9 @@ class VisionClient:
             messages.append({"role": "system", "content": system_prompt})
 
         content: list[dict[str, Any]] = [
-            {"type": "text", "text": str(cfg.get("prompt") or "") + self._meta_suffix(
-                transcript, original_name, duration)}
+            {"type": "text", "text": str(cfg.get("prompt") or "")
+             + self._glossary_suffix(cfg)
+             + self._meta_suffix(transcript, original_name, duration)}
         ]
         for frame in frames:
             encoded = base64.b64encode(frame).decode("ascii")
@@ -125,6 +126,26 @@ class VisionClient:
             })
         messages.append({"role": "user", "content": content})
         return messages
+
+    @staticmethod
+    def _glossary_suffix(cfg: dict) -> str:
+        """把用户维护的术语表拼进提示词。
+
+        行业黑话（「口播」「空镜」「B-roll」）模型未必按你的意思理解，明确喂给它，
+        命名准确率会明显好于让它自由发挥。
+        """
+        rows = cfg.get("glossary") or []
+        lines: list[str] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            term = str(row.get("term") or "").strip()
+            meaning = str(row.get("meaning") or "").strip()
+            if term and meaning:
+                lines.append(f"{term} = {meaning}")
+        if not lines:
+            return ""
+        return "\n\n术语参考（请按以下定义理解内容）：\n" + "\n".join(lines)
 
     @staticmethod
     def _meta_suffix(transcript: str, original_name: str, duration: float) -> str:

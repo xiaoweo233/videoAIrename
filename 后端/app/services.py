@@ -67,6 +67,37 @@ def port_open(host: str, port: int, timeout: float = 0.6) -> bool:
         return False
 
 
+# 子进程自己崩掉时，日志里那行英文才是真正的原因。这里把它翻译成用户能照做的建议，
+# 免得前端只显示一句「returncode=1」让人无从下手。
+_CRASH_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("failed to allocate memory for prompt cache", "bad allocation"),
+     "内存不足（提示词缓存分配失败）：请把「提示词缓存上限」调到 512–1024，或关掉另一个 AI 服务再试"),
+    (("out of memory", "cuda error: out of memory", "cudamalloc failed"),
+     "显存不足：请把「并发槽数」设为 1、「上下文长度」降到 4096，「卸载到显卡的层数」调小"),
+    (("address already in use", "couldn't bind", "bind failed"),
+     "端口被占用：请在设置里换一个端口"),
+    (("error loading model", "failed to load model", "unknown model architecture"),
+     "模型文件加载失败：请确认模型路径正确、下载完整（可点「补齐 AI 依赖与模型」校验）"),
+    (("no such file or directory", "the system cannot find the file"),
+     "缺少文件：请检查程序/模型路径，或点「补齐 AI 依赖与模型」下载"),
+    (("cuda error", "no cuda-capable device", "cuda driver version is insufficient"),
+     "CUDA 异常：请更新显卡驱动，或在设置里关闭「自动补 CUDA 库」改走 CPU"),
+    (("outofmemoryerror", "torch.outofmemoryerror"),
+     "PyTorch 显存不足：转写服务和视觉模型同时占卡了，先停掉另一个服务再跑"),
+)
+
+
+def crash_hint(log_tail) -> str:
+    """从日志尾部找已知的崩溃原因，返回中文建议；找不到就返回空串。"""
+    tail = "\n".join(log_tail or ()).lower()
+    if not tail:
+        return ""
+    for needles, hint in _CRASH_HINTS:
+        if any(needle in tail for needle in needles):
+            return hint
+    return ""
+
+
 class ServiceManager:
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -122,6 +153,15 @@ class ServiceManager:
             "-c", str(int(cfg.get("ctx_size") or 8192)),
             "-ngl", str(int(cfg.get("gpu_layers") or 99)),
         ]
+        # 并发槽数直接决定 KV cache 占用：4 个槽 = 4 份上下文显存。
+        # 实测 9B + 4 槽 + 8k 上下文会在 11GB 卡上 OOM，所以显式传 -np。
+        parallel = int(cfg.get("parallel") or 1)
+        if parallel > 0:
+            args += ["-np", str(parallel)]
+        # 提示词缓存默认要 8GB 系统内存，16GB 内存的机器上和模型抢不过就 bad allocation。
+        cache_ram = int(cfg.get("cache_ram", 1024) or 0)
+        if cache_ram > 0:
+            args += ["--cache-ram", str(cache_ram)]
         if mmproj.is_file():
             args += ["--mmproj", str(mmproj)]
         extra = str(cfg.get("extra_args") or "").strip()
@@ -238,6 +278,9 @@ class ServiceManager:
                     code = proc.returncode
                     state.status = ERROR
                     state.message = f"进程已退出（returncode={code}）"
+                    hint = crash_hint(state.log_tail)
+                    if hint:
+                        state.message += f" · {hint}"
                     state.pid = None
                 else:
                     state.status = STOPPED
@@ -409,11 +452,28 @@ class ServiceManager:
 
     # ---------- 启动时自动拉起 ----------
 
-    def autostart(self) -> None:
+    def _wait_ready(self, name: str, timeout: float = 240.0) -> bool:
+        """等到服务真正就绪（或失败）。模型加载要几十秒，必须等。"""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            state = self.refresh().get(name)
+            if state is None:
+                return False
+            if state.status in (RUNNING, EXTERNAL):
+                return True
+            if state.status == ERROR:
+                return False
+            time.sleep(2.0)
+        return False
+
+    def ensure_running(self) -> None:
+        """按顺序拉起：先视觉、后转写，**前一个就绪了才起下一个**。
+
+        为什么必须串行：两个服务都要往同一块显卡里塞模型。同时启动的话，
+        谁先抢到显存谁活，另一个直接 CUDA out of memory 崩掉——而崩溃方是随机的。
+        串行之后失败方一定是后起的转写服务，视觉这条主链路永远能起来。
+        """
         cfg = self._cfg()
-        if not cfg.get("autostart", True):
-            hub.debug("已关闭 AI 服务自动拉起")
-            return
         for name in ("llama", "asr"):
             section = cfg.get(name) or {}
             if not section.get("enable", True):
@@ -422,11 +482,43 @@ class ServiceManager:
             self._sync_from_config()
             state = self._state(name)
             if port_open(state.host, state.port):
-                hub.info(f"{state.label} 已在 {state.host}:{state.port} 上运行，跳过启动")
+                hub.debug(f"{state.label} 已在 {state.host}:{state.port} 上运行，跳过启动")
                 continue
             result = self.start(name)
             if not result.get("ok"):
                 hub.warn(f"{state.label} 自动启动失败：{result.get('message')}")
+                continue
+            if self._wait_ready(name):
+                hub.info(f"{state.label} 已就绪")
+                continue
+            state = self._state(name)
+            hint = crash_hint(state.log_tail)
+            hub.warn(f"{state.label} 自动启动未成功：{state.message}"
+                     + (f"（{hint}）" if hint else "")
+                     + "。可在设置 → AI 服务里先停掉另一个服务再单独启动它。")
+
+    def autostart(self) -> None:
+        if not self._cfg().get("autostart", True):
+            hub.debug("已关闭 AI 服务自动拉起")
+            return
+        self.ensure_running()
+
+    def stop_after_task(self) -> None:
+        """整批任务落盘结束后释放 AI 服务（只停本程序拉起的进程）。"""
+        if not self._cfg().get("stop_after_task", True):
+            return
+        with self._lock:
+            owned = [name for name, proc in self._procs.items()
+                     if proc is not None and proc.poll() is None]
+        if not owned:
+            return
+        hub.info("任务已结束，正在关闭 AI 服务以释放显存…")
+        for name in owned:
+            try:
+                self.stop(name)
+            except Exception:                       # noqa: BLE001
+                pass
+        hub.info("AI 服务已关闭 · 下次开始任务会自动重新拉起（可在设置里关掉这个行为）")
 
 
 services = ServiceManager()

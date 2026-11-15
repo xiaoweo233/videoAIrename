@@ -52,9 +52,13 @@ async def lifespan(app: FastAPI):
     # 恢复队列状态：重命名过的文件可能已不在原位，清理掉失效条目
     _prune_queue()
 
-    # AI 服务自动拉起放到后台：模型加载几十秒，不能卡住服务启动
+    # AI 服务自动拉起放到后台：模型加载几十秒，不能卡住服务启动。
+    # auto_fetch=true 时先补齐文件，再启动服务；不然一上来就会因为缺模型报错。
     if os.environ.get("VAIR_NO_AUTOSTART") == "1":
         hub.info("已按 --no-autostart 跳过 AI 服务自动拉起")
+    elif (config_mod.load().get("bootstrap") or {}).get("auto_fetch", False):
+        threading.Thread(target=_auto_fetch_then_start, daemon=True,
+                         name="vair-auto-fetch").start()
     else:
         threading.Thread(target=services.autostart, daemon=True, name="vair-autostart").start()
 
@@ -80,6 +84,30 @@ def _auto_check() -> None:
             hub.info("AI 资产齐备")
     except Exception as exc:                        # noqa: BLE001
         hub.debug(f"AI 资产自检跳过：{exc}")
+
+
+def _auto_fetch_then_start() -> None:
+    """用户明确开启自动补齐后，先下载缺失项，再启动 AI 服务。
+
+    只在**配置开关开启**时执行，模型数 GB，默认关；下载进度走 SSE。失败了
+    也继续尝试拉起已齐备的服务（例如视觉模型有，ASR 模型没下完）。
+    """
+    try:
+        report = bootstrap.check_assets()
+        missing = [i["id"] for i in report["items"] if i["status"] != "present"]
+        if missing:
+            hub.info(f"已开启自动补齐 · 缺少 {len(missing)} 项，开始下载")
+            result = bootstrap.fetch_assets(missing)
+            failed = [r["label"] for r in result["results"] if not r["ok"]]
+            if failed:
+                hub.error(f"自动补齐有 {len(failed)} 项失败：{'、'.join(failed)}")
+            else:
+                hub.info("AI 依赖与模型已自动补齐")
+            hub.publish("progress", {"phase": "all-done"})
+    except Exception as exc:                        # noqa: BLE001
+        hub.error(f"自动补齐失败：{exc}")
+    finally:
+        services.autostart()
 
 
 def _prune_queue() -> None:

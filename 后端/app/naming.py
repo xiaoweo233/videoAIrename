@@ -105,8 +105,11 @@ def build_stem(
 ) -> str:
     """按模板拼出新文件名（不含扩展名）。"""
     marker = str(cfg.get("marker") or "AI_RENAMED")
+    # include_date 关掉 = 即使模板里写了 {date} 也不要时间前缀（用户会这么理解这个开关）
+    date_value = extract_date_str(creation_time, path, str(cfg.get("date_format") or "")) \
+        if cfg.get("include_date", True) else ""
     values = {
-        "date": extract_date_str(creation_time, path, str(cfg.get("date_format") or "")),
+        "date": date_value,
         "title": sanitize_filename(title, TITLE_MAX_CHARS),
         "original": sanitize_filename(Path(original_name or path).stem, 60),
         "marker": sanitize_filename(marker, 30),

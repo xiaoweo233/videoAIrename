@@ -334,6 +334,35 @@
     if (item.action === 'settings-system') { VAIR.navigate('settings'); VAIR.bus.emit('settings:tab', 'system'); }
   }
 
+  /* ---------------- 后端连接徽标 ---------------- */
+
+  var CONN_TEXT = {
+    connecting: { label: '连接中…', title: '正在连接后端' },
+    live: { label: '已连接后端', title: '后端运行中' },
+    offline: { label: '后端已断开', title: '连接断开，点这里重试' },
+    demo: { label: '演示模式', title: '未连接后端，界面数据为模拟内容' }
+  };
+
+  function renderConn(conn) {
+    conn = conn || VAIR.state.conn || { mode: 'connecting' };
+    var mode = conn.mode || 'connecting';
+    var text = CONN_TEXT[mode] || CONN_TEXT.connecting;
+    var btn = VAIR.$('[data-connection]');
+    if (!btn) return;
+    btn.dataset.conn = mode;
+
+    var label = VAIR.$('[data-conn-label]', btn);
+    if (label) label.textContent = text.label;
+
+    var meta = VAIR.$('[data-conn-meta]', btn);
+    if (meta) {
+      if (mode === 'live') meta.textContent = conn.version ? 'v' + conn.version : '在线';
+      else if (mode === 'offline') meta.textContent = '重试中';
+      else meta.textContent = '—';
+    }
+    btn.setAttribute('aria-label', text.title);
+  }
+
   /* ---------------- Global wiring ---------------- */
 
   function initGlobal() {
@@ -353,6 +382,14 @@
       var toastBtn = e.target.closest('[data-toast]');
       if (toastBtn) {
         VAIR.toast(toastBtn.dataset.toast, '本地推理服务运行中，模型已加载。', 'success');
+        return;
+      }
+      var conn = e.target.closest('[data-connection]');
+      if (conn) {
+        e.preventDefault();
+        var mode = (VAIR.state.conn || {}).mode;
+        VAIR.navigate('settings');
+        if (mode === 'offline' && VAIR.api) VAIR.api.connect();
         return;
       }
       var cmd = e.target.closest('[data-command-open]');
@@ -466,11 +503,11 @@
 
   function boot() {
     initGlobal();
+    VAIR.bus.on('conn:change', renderConn);
+    renderConn();
     readyFns.forEach(function (fn) {
       try { fn(); } catch (err) { console.error('[VAIR] init error', err); }
     });
-    VAIR.log('info', '引擎初始化完成 · 模型 qwen2.5-vl-72b-instruct 已加载');
-    VAIR.log('debug', 'CUDA 设备 0 · RTX 4070 Ti SUPER · 16 GB VRAM');
     VAIR.bus.emit('app:ready');
   }
 })();

@@ -88,6 +88,7 @@ class FileItem:
             "error": self.error,
             "notes": self.notes,
             "elapsed": round(self.elapsed, 2),
+            "timings": dict(self.timings),      # 各阶段毫秒，前端「实时进度」用
         }
 
 

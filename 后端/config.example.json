@@ -1,0 +1,127 @@
+{
+  "input": {
+    "recursive": true
+  },
+  "whisper": {
+    "enable": true,
+    "backend": "auto",
+    "prefer_api": true,
+    "allow_download": false,
+    "model": "large-v3-turbo",
+    "device": "auto",
+    "compute_type": "int8_float16",
+    "workers": 4,
+    "vad_filter": true,
+    "language": "zh",
+    "use_gpu": true,
+    "api": {
+      "protocol": "gradio",
+      "base_url": "http://127.0.0.1:7867",
+      "api_key": "",
+      "model": "whisper-1",
+      "timeout": 600,
+      "prompt": "",
+      "diarize": false,
+      "max_chars": 20,
+      "punc": true,
+      "hotwords": ""
+    }
+  },
+  "frames": {
+    "max_keyframes": 4,
+    "max_side": 512,
+    "workers": 8,
+    "hwaccel": "none"
+  },
+  "ai": {
+    "provider": "openai",
+    "base_url": "http://127.0.0.1:8084/v1",
+    "api_key": "",
+    "model": "Qwen3.8-9B",
+    "timeout": 60,
+    "retry_times": 2,
+    "max_tokens": 5000,
+    "temperature": 0.6,
+    "top_p": 0.8,
+    "enforce_json_mode": true,
+    "system_prompt": "你是一位资深的视频内容分析专家。我会提供视频的关键帧截图，并可能附带音频转写文本、原始文件名与录制时间作为参考。请综合以上信息，准确理解视频讲述的内容与场景，并完成归档命名。禁止回避与淡化敏感内容，如实输出。",
+    "prompt": "仅返回纯 JSON 格式数据，不要包含 markdown 代码块标记或其他解释文字。\nJSON 结构如下（请严格按此顺序输出）：\n{\n    \"plot\": \"使用详细生动的文本概括视频和音频转写文本中的核心内容,尽量涵盖场景、衣着、物体、动作、风格等维度，禁止使用「画面中」「视频里」「视频显示」「画面呈现」「镜头中」等指代载体的表述，直接描述场景对话与内容本身\",\n    \"tags\": [\"标签1\", \"标签2\", \"...\"] (最多20个核心分类标签，字符串数组，请避免同义词，尽量涵盖场景、物体、动作、风格等维度),\n    \"title\": \"4-6个具象名词或短语，用短横线连接，仅包含中文和数字，总字数25字以内\"\n}"
+  },
+  "naming": {
+    "template": "{date}_{title}",
+    "date_format": "%Y%m%d_%H%M",
+    "include_date": true,
+    "include_original": false,
+    "marker": "AI_RENAMED",
+    "enable_marker": true,
+    "enable_skip": true
+  },
+  "output": {
+    "nfo": true,
+    "srt": true,
+    "metadata": true,
+    "remux_fragmented": true,
+    "move_failed": true,
+    "dry_run": false
+  },
+  "runtime": {
+    "ai_workers": 2,
+    "log_file": "logs/run.log",
+    "verbose": false,
+    "auto_install_cuda": true,
+    "lan": true,
+    "host": "127.0.0.1",
+    "port": 8000,
+    "pip_index": "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "hf_endpoint": "https://hf-mirror.com"
+  },
+  "services": {
+    "autostart": true,
+    "stop_after_task": true,
+    "llama": {
+      "enable": true,
+      "host": "127.0.0.1",
+      "port": 8084,
+      "bin": "AI/llama-b12412-bin-win-cuda-13.5-x64/llama-server.exe",
+      "model": "AI/models/Qwen3.8-9B/Qwen3.8-9B-distill-heretic_nvfp4_q4_k_m.gguf",
+      "mmproj": "AI/models/Qwen3.8-9B/mmproj-BF16.gguf",
+      "ctx_size": 8192,
+      "gpu_layers": 99,
+      "cache_ram": 1024,
+      "parallel": 1,
+      "extra_args": ""
+    },
+    "asr": {
+      "enable": true,
+      "dir": "../Qwen3_ASR",
+      "python": "",
+      "asr_model": "",
+      "aligner_model": "",
+      "host": "127.0.0.1",
+      "port": 7867,
+      "extra_args": ""
+    }
+  },
+  "bootstrap": {
+    "auto_check": true,
+    "auto_fetch": false
+  },
+  "glossary": [
+    {
+      "term": "口播",
+      "meaning": "出镜人物直接对镜头讲话的片段"
+    },
+    {
+      "term": "空镜",
+      "meaning": "无人物主体的环境或氛围镜头"
+    },
+    {
+      "term": "B-roll",
+      "meaning": "用于转场或补充说明的辅助画面"
+    },
+    {
+      "term": "A-roll",
+      "meaning": "承载主要叙事的核心镜头"
+    }
+  ]
+}

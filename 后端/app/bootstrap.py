@@ -497,8 +497,10 @@ def _safe_extract(archive: Path, target: Path) -> None:
             if not name or name.endswith("/"):
                 continue
             candidate = (target / name).resolve()
-            if not str(candidate).startswith(str(target_resolved)):
-                raise RuntimeError(f"压缩包内含非法路径，已中止：{name}")
+            try:
+                candidate.relative_to(target_resolved)
+            except ValueError:
+                raise RuntimeError(f"压缩包内含非法路径，已中止：{name}") from None
             zf.extract(member, target)
 
 

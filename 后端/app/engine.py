@@ -22,6 +22,7 @@ from . import config as config_mod
 from . import media, naming, paths
 from .hub import hub
 from .pipeline import CANCELED, FAILED, PENDING, REVIEW, RUNNING, SKIPPED, SUCCESS, FileItem, Pipeline
+from .services import services
 from .transcribe import transcriber
 
 CIRCUIT_BREAKER_THRESHOLD = 5       # 连续失败这么多个文件就自动停
@@ -180,6 +181,17 @@ class Engine:
 
     def _run(self) -> None:
         cfg = config_mod.load()
+
+        # 若上一批任务结束后把 AI 服务关了（services.stop_after_task），
+        # 这里先把它们拉起来再开工；已经跑着的会立刻跳过，代价只是一次端口探测。
+        if not self._stop.is_set():
+            self.message = "正在准备 AI 服务…"
+            self._broadcast_task()
+            try:
+                services.ensure_running()
+            except Exception as exc:                # noqa: BLE001
+                hub.warn(f"AI 服务准备阶段出错：{exc}")
+
         workers = max(1, int(cfg["runtime"].get("ai_workers") or 4))
         frame_workers = max(1, int(cfg["frames"].get("workers") or 8))
         recursive_ok = True  # 队列已展开完毕
@@ -217,6 +229,12 @@ class Engine:
                 f"失败 {self.stats['failed']} · 取消 {self.stats['canceled']}",
                 f"{self.stats['seconds']:.1f}s")
         self._broadcast_task()
+
+        # 文件已经落盘，AI 服务不再需要占着显存。放到后台线程里停，
+        # 别让前端等进程退出（每个模型卸载要几秒）。
+        if config_mod.load().get("services", {}).get("stop_after_task", True):
+            threading.Thread(target=services.stop_after_task, daemon=True,
+                             name="vair-stop-services").start()
 
     def _process_one(self, item: FileItem) -> None:
         if self._stop.is_set():
@@ -308,8 +326,15 @@ class Engine:
             entry = next((r for r in self.reviews if r["id"] == review_id), None)
         if entry is None:
             return {"ok": False, "message": "找不到这条审批记录"}
+        if entry.get("status") == "approved":
+            # 文件名已经在磁盘上改变；仅把状态改回 pending 会制造一个不可能存在的状态。
+            return {"ok": False, "message": "文件已经改名，不能撤销已通过的审批；请在文件管理器里手动改回"}
+        if action == "approve" and entry.get("status") != "pending":
+            return {"ok": False, "message": "这条建议不是待审批状态，请先恢复为待审批"}
 
         if action == "reject":
+            if entry.get("status") == "rejected":
+                return {"ok": True, "message": "已经忽略过"}
             entry["status"] = "rejected"
             self._save_reviews()
             hub.publish("review", entry)
