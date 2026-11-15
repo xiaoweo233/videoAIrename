@@ -32,6 +32,9 @@ logs/
 .shots/
 .tools/
 
+# 本机上的独立小工具（Claude Code 面板汉化），与视频重命名无关，不入库
+汉化面板/
+
 # ---- Python ----
 # start.bat 自己下载的便携版解释器（整个目录都在项目里，不入库）
 python/
