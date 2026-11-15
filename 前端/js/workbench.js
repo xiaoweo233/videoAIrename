@@ -452,6 +452,74 @@
     });
   }
 
+  /* ---------------- 命名审批：任务结束后自动引导 ---------------- */
+
+  var lastAutoReviewTask = 0;
+
+  function navigateToReviewOnDone() {
+    if (!live() || state.task.status !== 'done' || !state.task.startedAt) return;
+    if (lastAutoReviewTask === state.task.startedAt) return;
+    lastAutoReviewTask = state.task.startedAt;
+    var cfg = state.config || {};
+    if (cfg.output && cfg.output.require_approval === false) return;
+    if (!(state.approvals || []).some(function (item) { return item.status === 'pending'; })) return;
+    V.navigate('approvals');
+    V.toast('等待命名审批', '处理完成，全部改动待通过后才会写入磁盘。', 'info');
+  }
+
+  /* ---------------- 拖入：从资源管理器拿到真实路径 ----------------
+
+   * 浏览器的 Files 对象只有文件名、没有绝对路径，所以直接读 dataTransfer.files 是没用的。
+   * 但从资源管理器拖文件进来时，Windows 会把 CF_HDROP 一并放上剪贴板格式，
+   * Chromium 会把它映射成 text/uri-list（file:///D:/...）。能读到就用它；
+   * 读不到（Firefox / 某些安全策略）才提示改用「选择视频」。
+   */
+
+  function fileUrlToPath(url) {
+    var text = String(url || '').trim();
+    if (!text || text.charAt(0) === '#') return '';
+    // 直接就是 Windows 路径
+    if (/^[a-zA-Z]:[\\/]/.test(text)) return text.replace(/\//g, '\\');
+
+    if (!/^file:\/\//i.test(text)) return '';
+    var rest = text.replace(/^file:\/\//i, '');
+    try {
+      rest = decodeURIComponent(rest);
+    } catch (err) {
+      // 路径里含非法的百分号编码：原样用
+    }
+    if (/^localhost\//i.test(rest)) rest = rest.slice('localhost/'.length);
+    else if (rest.charAt(0) === '/') rest = rest.slice(1);
+    if (!/^[a-zA-Z]:/.test(rest)) return '';
+    return rest.replace(/\//g, '\\');
+  }
+
+  function pathsFromDrop(dt) {
+    if (!dt) return [];
+    var raw = '';
+    try { raw = dt.getData('text/uri-list') || ''; } catch (err) { raw = ''; }
+    if (!raw) {
+      try { raw = dt.getData('text/plain') || ''; } catch (err2) { raw = ''; }
+    }
+    if (!raw) return [];
+    var seen = {};
+    return raw.split(/\r?\n/).map(fileUrlToPath).filter(function (path) {
+      if (!path || seen[path.toLowerCase()]) return false;
+      seen[path.toLowerCase()] = 1;
+      return true;
+    });
+  }
+
+  function handleDrop(e) {
+    var paths = pathsFromDrop(e.dataTransfer);
+    if (paths.length) {
+      rememberDirs(paths);
+      addPaths(paths);
+      return true;
+    }
+    return false;
+  }
+
   /* ---------------- 接线 ---------------- */
 
   function init() {
@@ -485,9 +553,10 @@
       if (!files || !files.length) return;
 
       if (live()) {
-        // 出于安全，浏览器不会把拖入文件的绝对路径告诉网页；后端需要的是真实路径。
-        V.toast('请用「选择视频」按钮', '浏览器拿不到拖入文件的真实路径，'
-          + '系统文件对话框才能把路径交给后端。', 'warn');
+        // 先试真实路径（Chromium 会把资源管理器的 file:// 放进 text/uri-list）
+        if (handleDrop(e)) return;
+        V.toast('请用「选择视频」按钮', '浏览器这次没把拖入文件的真实路径交出来，'
+          + '系统文件对话框才能可靠地把路径交给后端。', 'warn');
         return;
       }
       addSamples(3);
@@ -548,6 +617,8 @@
     V.bus.on('action:add-sample', function () { addSamples(3); });
     V.bus.on('action:start', start);
     V.bus.on('task:update', function () { renderProgress(); renderStatus(); });
+    V.bus.on('task:update', navigateToReviewOnDone);
+    V.bus.on('approvals:update', navigateToReviewOnDone);
     V.bus.on('status:update', renderStatus);
     V.bus.on('stats:update', renderStats);
     V.bus.on('queue:update', renderQueue);

@@ -192,7 +192,7 @@
               <svg class="icon drop-orb__icon"><use href="#i-file-video"/></svg>
             </div>
             <h2 class="dropzone__title">把视频或文件夹拖到这里</h2>
-            <p class="dropzone__desc">支持批量添加，自动递归扫描子目录 · 浏览器读不到拖入文件的真实路径，实际请用下方按钮选择</p>
+            <p class="dropzone__desc">支持批量添加，自动递归扫描子目录 · 拖拽或点下方按钮都可以</p>
             <form class="path-row" id="pathForm" autocomplete="off">
               <span class="path-row__icon"><svg class="icon"><use href="#i-folder-open"/></svg></span>
               <input class="path-row__input" id="pathInput" type="text" placeholder="也可直接粘贴路径，例如 D:\素材\产品视频" aria-label="素材路径">
@@ -355,7 +355,7 @@
             </div>
             <p class="card__note">②a 抽帧与 ②b 转写互不阻塞，字幕与视觉齐备后进入 ③ 合并</p>
           </div>
-          <div class="pipeline" data-pipeline>
+          <div class="pipeline pipeline--tree" data-pipeline>
             <article class="stage" data-stage="0">
               <button class="stage__head" type="button" aria-expanded="false">
                 <span class="stage__num">1</span>
@@ -369,7 +369,7 @@
                 <p class="stage__log" data-stage-log>等待素材进入流水线。</p>
               </div>
             </article>
-            <div class="stage-branch">
+            <div class="stage-branch pgroup">
               <article class="stage stage--small" data-stage="1">
                 <button class="stage__head" type="button" aria-expanded="false">
                   <span class="stage__num">2a</span>
@@ -459,6 +459,14 @@
               <svg class="icon"><use href="#i-skip"/></svg>全部忽略
             </button>
           </div>
+        </div>
+
+        <div class="card approval-mode reveal" style="--i:4">
+          <div>
+            <strong>开启命名审批</strong>
+            <small>开启后，生成建议时不会改动原视频；点击「通过并改名」才会写入元数据、NFO 和字幕。关闭后处理完成直接落盘。</small>
+          </div>
+          <button class="switch" type="button" role="switch" aria-checked="true" aria-label="开启命名审批" data-approval-mode><span></span></button>
         </div>
 
         <div class="approval-summary reveal" style="--i:4">
@@ -920,6 +928,12 @@
                   <div class="setting-row__label"><strong>失败文件移入 _failed</strong><small>便于集中排查，不想动原文件就关掉</small></div>
                   <div class="setting-row__control">
                     <button class="switch" type="button" role="switch" aria-checked="true" aria-label="失败文件移入 _failed" data-cfg="output.move_failed" data-cfg-type="bool"><span></span></button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>开启命名审批</strong><small>默认开启：全部生成建议，只有在命名审批页通过后才改名及写入元数据、NFO、字幕；关闭则直接落盘</small></div>
+                  <div class="setting-row__control">
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="开启命名审批" data-cfg="output.require_approval" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
                 <div class="setting-row">

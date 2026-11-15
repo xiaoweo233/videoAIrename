@@ -34,7 +34,10 @@ def is_supported() -> bool:
     return paths.IS_WINDOWS
 
 
-_VIDEO_FILTER = "|".join(f"*{ext}" for ext in sorted(media.VIDEO_EXTS))
+# WinForms 的 Filter 语法：描述|通配符;通配符|描述|通配符。
+# 扩展名之间必须是 **分号**；用竖线会变成一堆独立的筛选项，
+# 结果就是默认项只匹配 *.3gp，用户的 mp4 根本看不见。
+_VIDEO_FILTER = ";".join(f"*{ext}" for ext in sorted(media.VIDEO_EXTS))
 
 _PS_COMMON = """
 Add-Type -AssemblyName System.Windows.Forms
@@ -50,6 +53,13 @@ $owner.Show()
 
 
 def _run_powershell(script: str, timeout: float) -> dict:
+    """跑一段 PowerShell 并取回 JSON。
+
+    结果走 **Base64(UTF-8)** 而不是直接打印：中文 Windows 的控制台输出编码是 GBK，
+    直接 `Write-Output` 再按 UTF-8 解码会把「示例-中文文件名」变成乱码，
+    后端于是收到一个不存在的路径（用户看到的就是「路径不存在」）。
+    Base64 只含 ASCII，彻底绕开代码页问题。
+    """
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     proc = subprocess.Popen(
         ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
@@ -68,11 +78,39 @@ def _run_powershell(script: str, timeout: float) -> dict:
     if not text:
         return {"ok": False, "cancelled": False, "paths": [],
                 "error": decode(err).strip()[-300:] or "没有拿到选择结果"}
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return {"ok": True, "cancelled": True, "paths": [],
-                "error": ""}
+
+    payload = _decode_payload(text)
+    if payload is None:
+        # 老格式 / 意外输出：当作取消，别把用户的乱码路径塞进队列
+        return {"ok": True, "cancelled": True, "paths": [], "error": ""}
+    return payload
+
+
+def _decode_payload(text: str) -> dict | None:
+    """支持 Base64(UTF-8) 与直接 JSON 两种返回格式。"""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if line.startswith("{") and line.endswith("}"):
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+        try:
+            raw = base64.b64decode(line, validate=True)
+            parsed = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _emit_json(payload_expr: str) -> str:
+    """生成「把 PowerShell 对象转成 Base64 JSON 打到 stdout」的尾巴。"""
+    return f"""
+$json = ({payload_expr}) | ConvertTo-Json -Compress -Depth 4
+[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($json))
+"""
 
 
 def _claim() -> None:
@@ -102,7 +140,8 @@ def pick_files(initial_dir: str = "", timeout: float = 900) -> dict:
 $dlg = New-Object System.Windows.Forms.OpenFileDialog
 $dlg.Title = '选择视频文件'
 $dlg.InitialDirectory = '{_ps_escape(start)}'
-$dlg.Filter = '视频文件 ({_VIDEO_FILTER})|{_VIDEO_FILTER}|所有文件 (*.*)|*.*'
+$dlg.Filter = '所有文件 (*.*)|*.*|视频文件 ({_VIDEO_FILTER})|{_VIDEO_FILTER}'
+$dlg.FilterIndex = 1
 $dlg.Multiselect = $true
 $result = $dlg.ShowDialog($owner)
 if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
@@ -110,7 +149,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
 }} else {{
   $payload = @{{ ok = $true; cancelled = $true; paths = @(); error = '' }}
 }}
-$payload | ConvertTo-Json -Compress
+{_emit_json("$payload")}
 """
         result = _run_powershell(script, timeout)
         if result.get("paths"):
@@ -141,7 +180,7 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
 }} else {{
   $payload = @{{ ok = $true; cancelled = $true; paths = @(); error = '' }}
 }}
-$payload | ConvertTo-Json -Compress
+{_emit_json("$payload")}
 """
         return _run_powershell(script, timeout)
     finally:

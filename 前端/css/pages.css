@@ -768,18 +768,27 @@
   padding-bottom: 16px;
 }
 
+/* 树状流水线：一根竖主干 + 每个阶段向左伸出的枝，2a/2b 是主干上的一个分组 */
 .pipeline {
+  position: relative;
   display: flex;
-  align-items: stretch;
-  gap: 0;
-  padding: 4px 0 8px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0 8px 34px;
+}
+
+.pipeline--tree::before {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 30px;
+  bottom: 30px;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--line-strong) 6% 94%, transparent);
 }
 
 .stage {
   position: relative;
-  flex: 1 0 148px;
   min-width: 0;
   padding: 14px;
   border-radius: 14px;
@@ -787,6 +796,42 @@
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012));
   transition: border-color 0.3s ease, background-color 0.3s ease, box-shadow 0.35s ease,
     transform 0.3s var(--ease-out);
+}
+
+/* 主干 → 卡片的横向枝 */
+.stage::before {
+  content: "";
+  position: absolute;
+  left: -21px;
+  top: 22px;
+  width: 21px;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+/* 枝条上的节点圆点 */
+.stage::after {
+  content: "";
+  position: absolute;
+  left: -25px;
+  top: 18px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bg, #fff);
+  border: 1.5px solid var(--line-strong);
+  transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.stage.is-active::after {
+  background: var(--violet);
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(139, 124, 255, 0.18);
+}
+
+.stage.is-done::after {
+  background: var(--green);
+  border-color: var(--green);
 }
 
 .stage:hover {
@@ -947,59 +992,48 @@
   line-height: 1.55;
 }
 
+/* 2a / 2b 分组：主干上伸出一根短枝，再分叉出两条 */
 .stage-branch {
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex: 1.15 0 168px;
-  margin: 0 20px;
+  margin-left: 8px;
+  padding-left: 22px;
 }
 
-.stage-branch::before,
+.stage-branch::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 22px;
+  bottom: 22px;
+  width: 1px;
+  background: var(--line-strong);
+}
+
+/* 主干 → 分叉点的横向枝 */
 .stage-branch::after {
   content: "";
   position: absolute;
-  top: 50%;
-  width: 20px;
+  left: -21px;
+  top: 22px;
+  width: 21px;
   height: 1px;
-  background: linear-gradient(90deg, var(--line-strong), rgba(139, 124, 255, 0.4));
+  background: var(--line-strong);
 }
 
-.stage-branch::before { left: -20px; }
-.stage-branch::after { right: -20px; transform: rotate(180deg); }
+.stage-branch .stage::before {
+  left: -22px;
+  width: 22px;
+}
 
 .stage-branch .stage {
-  flex: 1;
+  flex: none;
 }
 
 .stage-branch .stage__desc {
   font-size: 10px;
-}
-
-.pipeline > .stage + .stage,
-.stage-branch + .stage {
-  margin-left: 0;
-}
-
-.pipeline > .stage:not(:first-child),
-.pipeline > .stage-branch,
-.stage-branch + .stage {
-  position: relative;
-}
-
-.pipeline > .stage:not(:first-child)::before {
-  content: "";
-  position: absolute;
-  left: -19px;
-  top: 50%;
-  width: 18px;
-  height: 1px;
-  background: linear-gradient(90deg, var(--line-strong), rgba(139, 124, 255, 0.35));
-}
-
-.stage-branch + .stage::before {
-  display: none;
 }
 
 .pipeline__foot {
@@ -1025,27 +1059,38 @@
   height: 13px;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 700px) {
+  /* 窄屏把树状缩进收一点，别把卡片挤没了 */
   .pipeline {
-    flex-wrap: wrap;
-    gap: 10px;
+    padding-left: 24px;
   }
 
-  .stage,
+  .pipeline--tree::before {
+    left: 8px;
+  }
+
+  .stage::before {
+    left: -16px;
+    width: 16px;
+  }
+
+  .stage::after {
+    left: -20px;
+  }
+
   .stage-branch {
-    flex: 1 1 210px;
-    margin: 0;
+    margin-left: 2px;
+    padding-left: 16px;
   }
 
-  .stage-branch::before,
-  .stage-branch::after,
-  .pipeline > .stage::before {
-    display: none;
+  .stage-branch::after {
+    left: -16px;
+    width: 16px;
   }
 
-  .stage-branch {
-    flex-direction: row;
-    flex-basis: 100%;
+  .stage-branch .stage::before {
+    left: -16px;
+    width: 16px;
   }
 }
 
@@ -1068,10 +1113,6 @@
     width: 44px;
     height: 44px;
     border-radius: 13px;
-  }
-
-  .stage-branch {
-    flex-direction: column;
   }
 
   .card__note {
@@ -1103,6 +1144,41 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   flex-wrap: wrap;
+}
+
+/* 审批模式开关条 */
+.approval-mode {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 20px;
+  border-radius: 15px;
+  border: 1px solid var(--violet-line);
+  background: var(--violet-soft);
+}
+
+.approval-mode > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.approval-mode strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.approval-mode small {
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.approval-mode .switch {
+  margin-left: auto;
+  flex: none;
 }
 
 [data-theme="light"] .approval-summary {

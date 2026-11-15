@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as config_mod
-from . import media, naming, paths
+from . import media, naming, outputs, paths
 from .hub import hub
 from .pipeline import CANCELED, FAILED, PENDING, REVIEW, RUNNING, SKIPPED, SUCCESS, FileItem, Pipeline
 from .services import services
@@ -308,17 +308,24 @@ class Engine:
             "model": item.model,
             "frames": item.frames,
             "chars": item.chars,
+            # 不通过 GET /api/reviews 返回文本；只在服务端持久化供通过时写 SRT。
+            "srt_content": item.srt_content,
+            "creation_time": item.creation_time,
+            # 预览模式下这条只是演算结果，不能拿来真的改文件
+            "dry_run": bool(config_mod.load()["output"].get("dry_run")),
         }
         with self._lock:
             self.reviews = [r for r in self.reviews if r["id"] != item.id]
             self.reviews.insert(0, entry)
             self.reviews = self.reviews[:300]
         self._save_reviews()
-        hub.publish("review", entry)
+        hub.publish("review", {k: v for k, v in entry.items() if k != "srt_content"})
 
     def list_reviews(self) -> list[dict[str, Any]]:
+        """只给前端展示字段；转写 SRT 可能很长，且不应无谓广播到浏览器。"""
         with self._lock:
-            return list(self.reviews)
+            return [{k: v for k, v in row.items() if k != "srt_content"}
+                    for row in self.reviews]
 
     def resolve_review(self, review_id: str, action: str, new_name: str | None = None) -> dict[str, Any]:
         """通过 = 真正落盘；忽略 = 丢弃结果。"""
@@ -336,18 +343,23 @@ class Engine:
             if entry.get("status") == "rejected":
                 return {"ok": True, "message": "已经忽略过"}
             entry["status"] = "rejected"
+            entry.pop("srt_content", None)
             self._save_reviews()
-            hub.publish("review", entry)
+            hub.publish("review", {k: v for k, v in entry.items() if k != "srt_content"})
             hub.info(f"已忽略命名建议 · {entry['original']}")
             return {"ok": True, "message": "已忽略"}
 
         if action == "pending":
             entry["status"] = "pending"
             self._save_reviews()
-            hub.publish("review", entry)
+            hub.publish("review", {k: v for k, v in entry.items() if k != "srt_content"})
             return {"ok": True, "message": "已恢复为待审批"}
 
         # approve：用户可能改过名字，用用户给的
+        if entry.get("dry_run"):
+            return {"ok": False,
+                    "message": "预览模式下的建议只是演算结果，不能直接应用。"
+                               "请关掉「预览模式」再跑一遍，然后审批。"}
         final_name = (new_name or entry["name"] or "").strip()
         if not final_name:
             return {"ok": False, "message": "新文件名为空"}
@@ -357,21 +369,40 @@ class Engine:
             entry["status"] = "failed"
             entry["error"] = "源文件已不存在"
             self._save_reviews()
-            hub.publish("review", entry)
+            hub.publish("review", {k: v for k, v in entry.items() if k != "srt_content"})
             return {"ok": False, "message": "源文件已不存在，可能在文件系统里被移动或删除了"}
 
-        target = naming.unique_target(source.with_name(final_name), source)
+        # 原文件扩展名不可改（避免浏览器传来的名字把 mp4 改成 exe 或其它格式）。
+        proposed = Path(final_name).name
+        if proposed != final_name or proposed in (".", "..") or "\x00" in proposed:
+            return {"ok": False, "message": "文件名不能包含路径或非法字符"}
+        if Path(proposed).suffix.lower() != source.suffix.lower():
+            return {"ok": False, "message": f"请保留原始扩展名 {source.suffix}"}
+
+        target = naming.unique_target(source.with_name(proposed), source)
         result = naming.rename_file(source, target, dry_run=False)
         if result.startswith("error:"):
             return {"ok": False, "message": f"重命名失败：{result[6:]}"}
 
+        # 通过后才写元数据、NFO、SRT。拒绝与待审批期间原视频完全不动。
+        notes = outputs.write_all(
+            target,
+            title=entry.get("title") or "",
+            plot=entry.get("plot") or "",
+            tags=entry.get("tags") or [],
+            original_name=entry["original"],
+            duration=entry.get("duration") or 0,
+            srt_content=entry.get("srt_content") or "",
+            dry_run=False,
+        )
         hub.info(f"已应用命名 · {entry['original']} → {target.name}")
         entry["status"] = "approved"
         entry["name"] = target.name
         entry["path"] = str(target)
+        entry.pop("srt_content", None)
         self._save_reviews()
-        hub.publish("review", entry)
-        return {"ok": True, "message": f"已重命名为 {target.name}"}
+        hub.publish("review", entry.copy())
+        return {"ok": True, "message": f"已重命名为 {target.name}", "notes": notes}
 
     def _reviews_path(self) -> Path:
         return paths.DATA_DIR / REVIEWS_FILE

@@ -133,9 +133,19 @@
     listEl.innerHTML = pending().map(rowHTML).join('');
   }
 
+  function renderApprovalMode() {
+    var button = q('[data-approval-mode]');
+    if (!button) return;
+    var cfg = state.config || {};
+    var enabled = !(cfg.output && cfg.output.require_approval === false);
+    button.setAttribute('aria-checked', enabled ? 'true' : 'false');
+    button.disabled = !live();
+  }
+
   function render() {
     renderList();
     renderSummary();
+    renderApprovalMode();
   }
 
   /* ---------------- 操作 ---------------- */
@@ -282,11 +292,26 @@
       }
     });
 
+    V.on(q('[data-approval-mode]'), 'click', function () {
+      if (!live()) return;
+      var current = !((state.config || {}).output && state.config.output.require_approval === false);
+      var button = q('[data-approval-mode]');
+      button.disabled = true;
+      V.api.saveConfig({ output: { require_approval: !current } }).then(function () {
+        renderApprovalMode();
+        V.toast('命名审批设置已保存', current ? '下次任务处理完成后将直接落盘。' :
+          '下次任务将等待审批通过后再落盘。', 'success');
+      }).catch(function (err) {
+        V.toast('设置保存失败', V.api.errorText(err), 'error');
+      }).then(function () { renderApprovalMode(); });
+    });
+
     V.on(q('[data-approve-all]'), 'click', function () { decideAll('approved'); });
     V.on(q('[data-skip-all]'), 'click', function () { decideAll('skipped'); });
     V.on(q('[data-approval-undo]'), 'click', undo);
 
     V.bus.on('approvals:update', render);
+    V.bus.on('config:update', renderApprovalMode);
     V.bus.on('conn:change', render);
     render();
   }

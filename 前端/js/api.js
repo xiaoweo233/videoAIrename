@@ -584,5 +584,7 @@
 
     refreshState().catch(function () { /* SSE 的 state 快照会兜底 */ });
     refreshServer().catch(function () {});
+    // 审批开关、预览模式这类行为判断要用到配置，不能等用户点进设置页才拉
+    refreshConfig().catch(function () {});
   });
 })();

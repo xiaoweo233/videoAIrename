@@ -60,6 +60,8 @@ class FileItem:
     model: str = ""
 
     error: str = ""
+    # 审批通过后生成 SRT 必须保留原始时间轴；待审批时只在内存中保存，绝不提前落盘。
+    srt_content: str = ""
     notes: list[str] = field(default_factory=list)
     timings: dict[str, int] = field(default_factory=dict)
     elapsed: float = 0.0
@@ -305,9 +307,11 @@ class Pipeline:
         item.new_name = target.name
         item.new_path = str(target)
 
-        if dry_run:
+        if dry_run or cfg["output"].get("require_approval", True):
             item.status = REVIEW
-            item.notes.append("预览模式：仅计算，不落盘")
+            item.srt_content = transcript.to_srt() if transcript is not None and transcript.segments else ""
+            item.notes.append("预览模式：仅计算，不落盘" if dry_run
+                              else "等待命名审批：尚未修改原视频或写入任何附属产物")
             return
 
         # 先把附属产物写到「重命名后」的路径上，避免出现半截状态

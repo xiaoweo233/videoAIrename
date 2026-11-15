@@ -96,6 +96,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "enable_skip": True,            # 跳过已处理
     },
     "output": {
+        # 开启后先生成命名建议，用户在「命名审批」通过后才改名/写元数据/NFO/SRT。
+        # 关闭则保持自动落盘；预览模式 dry_run 独立于审批开关。
+        "require_approval": True,
         "nfo": True,                # 生成 NFO
         "srt": True,                # 生成 SRT 字幕
         "metadata": True,           # ExifTool 写元数据
