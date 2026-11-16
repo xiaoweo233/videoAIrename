@@ -50,27 +50,24 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "whisper": {
         "enable": True,             # 关闭后跳过语音，纯画面分析
-        "backend": "auto",          # auto | local | api
-        "prefer_api": True,         # 优先走 API，不可用自动回退本地
-        "allow_download": False,    # 本地模型缺失时是否联网下载
-        "model": "large-v3-turbo",
-        "device": "auto",           # auto | cuda | cpu
-        "compute_type": "int8_float16",
-        "workers": 4,
-        "vad_filter": True,
+        # auto  = 远程优先，没配远程/远程失败时用内置 Qwen3-ASR
+        # api   = 只用远程接口，不回退
+        # local = 只用内置 Qwen3-ASR 服务
+        "backend": "auto",
         "language": "zh",           # auto 表示自动识别
-        "use_gpu": True,
+        "timeout": 600,
+        # 以下参数对内置服务与远程接口都生效，避免两套 UI 各填一遍
+        "diarize": False,
+        "max_chars": 20,
+        "punc": True,
+        "hotwords": "",
         "api": {
-            "protocol": "gradio",                                       # gradio | openai
-            "base_url": "http://127.0.0.1:7867",
+            "protocol": "gradio",   # gradio | openai
+            # 远程接口。留空 = 未配置：auto 直接用内置服务，不报错。
+            "base_url": "",
             "api_key": "",
-            "model": "whisper-1",
-            "timeout": 600,
+            "model": "Qwen3-ASR",
             "prompt": "",
-            "diarize": False,
-            "max_chars": 20,
-            "punc": True,
-            "hotwords": "",
         },
     },
     "frames": {
@@ -81,9 +78,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "ai": {
         "provider": "openai",       # openai | gemini
-        "base_url": "http://127.0.0.1:8084/v1",
+        # auto  = 远程优先，失败回退内置 llama.cpp
+        # api   = 只用远程接口
+        # local = 只用内置 llama.cpp
+        "backend": "auto",
+        # 远程接口。留空 = 未配置，auto 直接走本地。
+        "base_url": "",
         "api_key": "",
-        "model": "Qwen3.8-9B",
+        "remote_model": "",         # 远程模型名
+        # 本地模型别名：启动 llama-server 时会带 --alias，保证请求里的 model 对得上
+        "model": "Qwen3.5-4B",
         "timeout": 60,
         "retry_times": 2,
         "max_tokens": 5000,
@@ -137,28 +141,32 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "host": "127.0.0.1",
             "port": 8084,
             "bin": "AI/llama-b12412-bin-win-cuda-13.5-x64/llama-server.exe",
-            "model": "AI/models/Qwen3.8-9B/Qwen3.8-9B-distill-heretic_nvfp4_q4_k_m.gguf",
-            "mmproj": "AI/models/Qwen3.8-9B/mmproj-BF16.gguf",
+            "model": "AI/models/Qwen3.5-4B/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+            "mmproj": "AI/models/Qwen3.5-4B/mmproj-Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-BF16.gguf",
             "ctx_size": 8192,
             "gpu_layers": 99,
             # 提示词缓存上限（MB）。llama.cpp 默认 8192，吃掉的是**系统内存**。
-            # 16GB 内存的机器上，9B 模型 + mmproj + ASR 模型一起驻留时，
+            # 16GB 内存的机器上，视觉模型 + mmproj + ASR 模型一起驻留时，
             # 8GB 的缓存根本分配不出来，日志会刷 "failed to allocate memory for
             # prompt cache state: bad allocation" 然后退出。砍到 1GB 足够用。
             "cache_ram": 1024,
             # 并发槽数。llama.cpp 默认开 4 个槽，每个槽都按 ctx_size 预留 KV cache，
-            # 9B 模型下光 KV 就能吃掉好几 GB。本项目最多并发 2 路，1 个槽最省显存。
+            # 4B 模型下 4 个槽的 KV 也不小，本项目最多并发 2 路，1 个槽最省显存。
             "parallel": 1,
             "extra_args": "",
         },
         "asr": {
             "enable": True,
-            # Qwen3_ASR 是独立项目（自带便携 Python）。相对路径按仓库根解析。
-            "dir": "../Qwen3_ASR",
-            "python": "",           # 留空则自动探测 WPy64-*/python/python.exe
+            # 内置服务代码随本项目分发；留空等价于「后端/asr_service」。
+            "dir": "后端/asr_service",
+            # 留空自动探测：项目便携 Python → 旧版 Qwen3_ASR 的 WinPython
+            "python": "",
+            # ASR 运行环境（pip --target 装到这里，不入库）
+            "runtime": "AI/asr-python",
             # 模型路径按仓库根解析；留空则用 AI/models/Qwen 下的默认位置。
             "asr_model": "",
             "aligner_model": "",
+            "sd_model": "",         # 说话人分离模型，留空用 AI/models/speaker-diarization-community-1
             "host": "127.0.0.1",    # 内部项，同 llama.host
             "port": 7867,
             "extra_args": "",

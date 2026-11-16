@@ -1,11 +1,11 @@
-"""语音转写：本地 faster-whisper 与远程 API（Gradio / OpenAI 协议）。
+"""语音转写：内置 Qwen3-ASR 服务与远程接口（Gradio / OpenAI 协议）。
 
-调度语义（与配置 `whisper.backend` 对应）：
+调度语义（配置 `whisper.backend`）：
 
-- `local`：只用本地。
-- `api`  ：只用远程，失败直接报错，**不回退**（用户明确要求走远程时别自作主张）。
-- `auto` ：优先远程；单条失败即回退本地重试。远程连续失败 2 次后，本任务内固定走本地，
-           避免每个文件都先卡一次超时。
+- `local`：只用内置 Qwen3-ASR 服务（本项目自己拉起，127.0.0.1:7867）。
+- `api`  ：只用远程接口，失败直接报错，**不回退**（用户明确要求走远程时别自作主张）。
+- `auto` ：配了远程接口就优先远程；单条失败回退内置服务重试。远程连续失败 2 次后，
+           本任务内固定走内置，避免每个文件都先卡一次超时。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from . import proc
 from .hub import hub
 
 REMOTE_FAIL_CAP = 2
-LOCAL_WATCHDOG_SECONDS = 300
+BUILTIN_TIMEOUT = 1800          # 内置服务按视频长度算，长视频要留足时间
 
 GRADIO_LANG_MAP = {
     "auto": "自动识别",
@@ -57,7 +57,7 @@ class TranscriptResult:
     text: str = ""
     segments: list[TranscriptSegment] = field(default_factory=list)
     language: str = ""
-    source: str = ""            # local | gradio | openai | skipped
+    source: str = ""            # builtin | gradio | openai | skipped
     device: str = ""
     model: str = ""
     elapsed_ms: int = 0
@@ -83,11 +83,11 @@ class TranscriptResult:
         }
 
     def to_srt(self) -> str:
-        """转 SRT。本地路径一条 segment 一行，不做字数切分。"""
+        """转 SRT。一条 segment 一行，保留说话人标签。"""
         lines: list[str] = []
         index = 0
         for seg in self.segments:
-            text = _SPEAKER_TAG_RE.sub("", seg.text or "").strip()
+            text = (seg.text or "").strip()
             if not text:
                 continue
             index += 1
@@ -157,6 +157,11 @@ def _needs_reflow(segments: list[TranscriptSegment]) -> bool:
     return (sum(widths) / len(widths)) < 10
 
 
+def _word_text(word: dict[str, Any]) -> str:
+    """兼容两种词级格式：Gradio 结果包用 `word`，内置服务用 `text`。"""
+    return str(word.get("word") or word.get("text") or "")
+
+
 def group_words_into_segments(
     words: list[dict[str, Any]], max_chars: int = 20
 ) -> list[TranscriptSegment]:
@@ -168,7 +173,10 @@ def group_words_into_segments(
     def flush() -> None:
         if not buf:
             return
-        text = _join_text([str(w.get("word", "")) for w in buf])
+        text = _join_text([_word_text(w) for w in buf])
+        speaker = buf[0].get("speaker")
+        if text and speaker:
+            text = f"[{speaker}] {text}"
         if text:
             segments.append(TranscriptSegment(
                 float(buf[0].get("start") or 0.0),
@@ -178,12 +186,12 @@ def group_words_into_segments(
         buf.clear()
 
     for word in words:
-        token = str(word.get("word", ""))
+        token = _word_text(word)
         if buf:
             prev = buf[-1]
             gap = float(word.get("start") or 0) - float(prev.get("end") or prev.get("start") or 0)
             speaker_changed = word.get("speaker") != prev.get("speaker")
-            current_width = sum(_display_width(str(w.get("word", ""))) for w in buf)
+            current_width = sum(_display_width(_word_text(w)) for w in buf)
             if gap > 0.8 or speaker_changed or current_width + _display_width(token) > max_chars:
                 flush()
         buf.append(word)
@@ -203,21 +211,37 @@ def _normalize_speakers(segments: list[TranscriptSegment]) -> list[TranscriptSeg
 
 
 class Transcriber:
-    """转写引擎。懒加载本地模型，并记录远程可用性。"""
+    """转写引擎。内置服务与远程接口共用同一套调度。"""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._local_model: Any = None
-        self._local_key: tuple | None = None
-        self._local_failed = False
         self._remote_fails = 0
-        self._infer_lock = threading.Lock()   # 本地推理串行：GPU 独占
 
     # ---------- 任务级状态 ----------
 
     def reset_task_state(self) -> None:
         with self._lock:
             self._remote_fails = 0
+
+    # ---------- 端点 ----------
+
+    @staticmethod
+    def builtin_url(cfg: dict | None = None) -> str:
+        cfg = cfg or config_mod.load()
+        asr = (cfg.get("services") or {}).get("asr") or {}
+        host = str(asr.get("host") or "127.0.0.1")
+        port = int(asr.get("port") or 7867)
+        return f"http://{host}:{port}"
+
+    @staticmethod
+    def _params(cfg: dict) -> dict[str, Any]:
+        """内置服务与远程接口共用的转写参数。"""
+        return {
+            "diarize": bool(cfg.get("diarize", False)),
+            "max_chars": max(5, int(cfg.get("max_chars") or 20)),
+            "punc": bool(cfg.get("punc", True)),
+            "hotwords": str(cfg.get("hotwords") or ""),
+        }
 
     # ---------- 对外入口 ----------
 
@@ -230,166 +254,112 @@ class Transcriber:
         started = time.perf_counter()
 
         if backend == "local":
-            result = self._run_local(audio_path, cfg, language)
+            result = self._run_builtin(audio_path, cfg, language)
         elif backend == "api":
             result = self._run_remote(audio_path, cfg, language)
         else:
-            prefer_api = bool(cfg.get("prefer_api", True))
-            remote_ok = prefer_api and self._remote_fails < REMOTE_FAIL_CAP
+            remote_ok = self._remote_configured(cfg)
+            with self._lock:
+                remote_ok = remote_ok and self._remote_fails < REMOTE_FAIL_CAP
             result = self._run_remote(audio_path, cfg, language) if remote_ok \
-                else self._run_local(audio_path, cfg, language)
+                else self._run_builtin(audio_path, cfg, language)
             if result.error and remote_ok:
-                # 单条失败即回退本地重试
+                # 单条失败即回退内置服务重试
                 with self._lock:
                     self._remote_fails += 1
-                hub.debug(f"远程转写失败，回退本地：{result.error}")
-                local = self._run_local(audio_path, cfg, language)
+                hub.debug(f"远程转写失败，回退内置服务：{result.error}")
+                local = self._run_builtin(audio_path, cfg, language)
                 if local.ok:
                     result = local
 
         result.elapsed_ms = int((time.perf_counter() - started) * 1000)
         return result
 
-    # ---------- 本地 ----------
-
-    def _run_local(self, audio_path, cfg: dict, language: str | None) -> TranscriptResult:
-        if self._local_failed:
-            return TranscriptResult(source="local", error="本地转写模型此前加载失败")
-
-        try:
-            model = self._ensure_local_model(cfg)
-        except Exception as exc:                    # noqa: BLE001 - 要把原因带回给用户
-            self._local_failed = True
-            return TranscriptResult(source="local", error=f"加载本地模型失败：{exc}")
-
-        device = self.device_label(cfg)
-        lang = _normalize_language(language if language is not None else cfg.get("language"))
-
-        outcome: dict[str, Any] = {}
-
-        def worker() -> None:
-            try:
-                with self._infer_lock:
-                    segments_iter, info = model.transcribe(
-                        str(audio_path),
-                        beam_size=5,
-                        vad_filter=bool(cfg.get("vad_filter", True)),
-                        language=lang,
-                        word_timestamps=False,
-                    )
-                    segments: list[TranscriptSegment] = []
-                    parts: list[str] = []
-                    for seg in segments_iter:
-                        text = (getattr(seg, "text", "") or "").strip()
-                        if not text:
-                            continue
-                        segments.append(TranscriptSegment(
-                            float(getattr(seg, "start", 0.0)),
-                            float(getattr(seg, "end", 0.0)),
-                            text,
-                        ))
-                        parts.append(text)
-                    outcome["segments"] = segments
-                    outcome["text"] = _join_text(parts)
-                    outcome["language"] = getattr(info, "language", "") or ""
-            except Exception as exc:                # noqa: BLE001
-                outcome["error"] = str(exc)
-
-        thread = threading.Thread(target=worker, daemon=True, name="vair-whisper")
-        thread.start()
-        thread.join(timeout=LOCAL_WATCHDOG_SECONDS)
-
-        if thread.is_alive():
-            # CTranslate2 缺 CUDA 库时会挂起而不是报错，只能靠看门狗兜住。
-            return TranscriptResult(
-                source="local", device=device, model=str(cfg.get("model")),
-                error=f"本地转写超时（>{LOCAL_WATCHDOG_SECONDS}s），可能是 CUDA 库缺失导致挂起",
-            )
-        if outcome.get("error"):
-            return TranscriptResult(source="local", device=device, error=outcome["error"])
-
-        segments = outcome.get("segments") or []
-        return TranscriptResult(
-            text=outcome.get("text") or "",
-            segments=_normalize_speakers(segments),
-            language=outcome.get("language") or "",
-            source="local",
-            device=device,
-            model=str(cfg.get("model")),
-        )
-
-    def _ensure_local_model(self, cfg: dict) -> Any:
-        key = (str(cfg.get("model")), str(cfg.get("device")), str(cfg.get("compute_type")),
-               bool(cfg.get("use_gpu", True)))
-        with self._lock:
-            if self._local_model is not None and self._local_key == key:
-                return self._local_model
-
-        from faster_whisper import WhisperModel  # 延迟导入：没装也不影响启动
-
-        device, compute_type = self._resolve_device(cfg)
-        source = self._resolve_model_source(str(cfg.get("model") or "large-v3-turbo"),
-                                            bool(cfg.get("allow_download", False)))
-
-        hub.info(f"加载本地 Whisper 模型 · {source} · {device}/{compute_type}")
-        try:
-            model = WhisperModel(source, device=device, compute_type=compute_type)
-        except Exception as exc:                    # noqa: BLE001
-            # 只有设备相关错误才值得用 CPU 重试；模型来源错误重试也没用。
-            message = str(exc).lower()
-            device_problem = any(k in message for k in ("cuda", "cublas", "cudnn", "device", "gpu"))
-            if device != "cpu" and device_problem:
-                hub.warn(f"GPU 加载失败，回退 CPU/int8：{exc}")
-                model = WhisperModel(source, device="cpu", compute_type="int8")
-                device, compute_type = "cpu", "int8"
-            else:
-                raise
-
-        with self._lock:
-            self._local_model = model
-            self._local_key = key
-            self._local_device = f"{device}/{compute_type}"
-        hub.info(f"本地 Whisper 就绪 · {device}/{compute_type}")
-        return model
-
-    def _resolve_device(self, cfg: dict) -> tuple[str, str]:
-        compute_type = str(cfg.get("compute_type") or "int8_float16")
-        if not cfg.get("use_gpu", True) or str(cfg.get("device") or "auto") == "cpu":
-            return "cpu", "int8"
-
-        wanted = str(cfg.get("device") or "auto")
-        try:
-            import ctranslate2
-            has_gpu = ctranslate2.get_cuda_device_count() > 0
-        except Exception:                           # noqa: BLE001
-            has_gpu = False
-
-        if not has_gpu or not _cuda_libs_present():
-            return "cpu", "int8"
-        if wanted not in ("auto", "cuda"):
-            return "cpu", "int8"
-        return "cuda", ("int8_float16" if compute_type == "int8" else compute_type)
-
     @staticmethod
-    def _resolve_model_source(name: str, allow_download: bool) -> str:
-        """本地目录优先（传目录会跳过一切网络请求）。"""
-        local = paths_whisper_models() / name
-        if local.is_dir() and any(local.iterdir()):
-            return str(local)
-        if allow_download:
-            return name
-        # 不允许下载又找不到本地目录：给出明确错误，而不是静默联网拉 1.6GB
-        raise FileNotFoundError(
-            f"未找到本地模型 {name}（{local}）。可开启「本地模型缺失时自动联网下载」或先下载模型。"
+    def _remote_configured(cfg: dict) -> bool:
+        return bool(str((cfg.get("api") or {}).get("base_url") or "").strip())
+
+    # ---------- 内置服务 ----------
+
+    def _run_builtin(self, audio_path, cfg: dict, language: str | None) -> TranscriptResult:
+        import httpx
+
+        base = self.builtin_url()
+        params = self._params(cfg)
+        lang = _normalize_language(language if language is not None else cfg.get("language"))
+        data = {
+            "lang": lang or "auto",
+            "diarize": "true" if params["diarize"] else "false",
+            "max_chars": str(params["max_chars"]),
+            "punc": "true" if params["punc"] else "false",
+            "hotwords": params["hotwords"],
+        }
+        timeout = max(30, int(cfg.get("timeout") or BUILTIN_TIMEOUT))
+
+        try:
+            with open(proc.long_path(audio_path), "rb") as fh:
+                resp = httpx.post(
+                    base + "/transcribe",
+                    data=data,
+                    files={"file": (Path(audio_path).name, fh, "audio/wav")},
+                    timeout=timeout,
+                )
+        except Exception as exc:                    # noqa: BLE001
+            return TranscriptResult(source="builtin", device="内置 Qwen3-ASR",
+                                    error=_explain_connect_error(str(exc), base))
+
+        if resp.status_code >= 400:
+            detail = resp.text[:300]
+            try:
+                detail = str(resp.json().get("detail") or detail)
+            except ValueError:
+                pass
+            return TranscriptResult(source="builtin", device="内置 Qwen3-ASR",
+                                    error=f"内置转写服务报错：{detail}")
+
+        try:
+            body = resp.json()
+        except ValueError:
+            return TranscriptResult(source="builtin", device="内置 Qwen3-ASR",
+                                    error="内置转写服务返回了非 JSON 内容")
+
+        words = [w for w in (body.get("words") or []) if isinstance(w, dict)]
+        segments = group_words_into_segments(words, params["max_chars"]) if words else []
+        segments = _normalize_speakers(segments)
+
+        text = str(body.get("text") or "").strip()
+        if not text and not segments:
+            empty_error = body.get("error") or "内置转写服务返回空结果（模型可能仍在加载）"
+            return TranscriptResult(source="builtin", device="内置 Qwen3-ASR",
+                                    error=str(empty_error))
+
+        return TranscriptResult(
+            text=text or _join_text([s.text for s in segments]),
+            segments=segments,
+            language=str(body.get("language") or lang or ""),
+            source="builtin",
+            device="内置 Qwen3-ASR",
+            model=str(body.get("model") or "Qwen3-ASR"),
         )
 
-    def device_label(self, cfg: dict | None = None) -> str:
-        cached = getattr(self, "_local_device", None)
-        if cached:
-            return str(cached)
-        cfg = cfg or config_mod.load()["whisper"]
-        device, compute_type = self._resolve_device(cfg)
-        return f"{device}/{compute_type}"
+    def probe_local(self) -> dict[str, Any]:
+        """探测内置服务 /health。"""
+        import httpx
+
+        base = self.builtin_url()
+        try:
+            resp = httpx.get(base + "/health", timeout=5)
+        except Exception as exc:                    # noqa: BLE001
+            return {"ok": False, "message": f"内置服务未运行（{base}）：{exc}"}
+        if resp.status_code >= 400:
+            return {"ok": False, "message": f"内置服务返回 {resp.status_code}"}
+        try:
+            body = resp.json()
+        except ValueError:
+            return {"ok": True, "message": "内置服务可达"}
+        if body.get("ready") is False:
+            return {"ok": False, "message": "内置服务正在加载模型，请稍候"}
+        return {"ok": True, "message": f"内置服务就绪 · {body.get('model') or 'Qwen3-ASR'}"}
 
     # ---------- 远程 ----------
 
@@ -398,20 +368,22 @@ class Transcriber:
         protocol = (api.get("protocol") or "gradio").lower()
         base = (api.get("base_url") or "").rstrip("/")
         if not base:
-            return TranscriptResult(source=protocol, error="未配置转写 API 地址")
+            return TranscriptResult(source=protocol, error="未配置远程转写接口地址")
 
         try:
             if protocol == "gradio":
-                return self._transcribe_gradio(audio_path, api, base, cfg, language)
-            return self._transcribe_openai(audio_path, api, base, cfg, language)
+                return self._transcribe_gradio(audio_path, cfg, base, language)
+            return self._transcribe_openai(audio_path, cfg, base, language)
         except Exception as exc:                    # noqa: BLE001
             return TranscriptResult(source=protocol, model=str(api.get("model") or ""),
                                     error=_explain_connect_error(str(exc), base))
 
-    def _transcribe_gradio(self, audio_path, api: dict, base: str, cfg: dict,
+    def _transcribe_gradio(self, audio_path, cfg: dict, base: str,
                            language: str | None) -> TranscriptResult:
         from gradio_client import Client, handle_file
 
+        api = cfg.get("api") or {}
+        params = self._params(cfg)
         lang = _normalize_language(language if language is not None else cfg.get("language") or "auto")
         lang_arg = GRADIO_LANG_MAP.get(lang or "auto", "自动识别")
 
@@ -420,10 +392,10 @@ class Transcriber:
             out = client.predict(
                 handle_file(str(audio_path)),
                 lang_arg,
-                bool(api.get("diarize", False)),
-                max(5, int(api.get("max_chars") or 20)),
-                bool(api.get("punc", True)),
-                str(api.get("hotwords") or ""),
+                params["diarize"],
+                params["max_chars"],
+                params["punc"],
+                params["hotwords"],
                 api_name="/single_handler",
             )
         except Exception as exc:                    # noqa: BLE001
@@ -444,7 +416,7 @@ class Transcriber:
         if srt_text:
             segments = parse_srt(srt_text)
         if (not segments or _needs_reflow(segments)) and words:
-            segments = group_words_into_segments(words, int(api.get("max_chars") or 20))
+            segments = group_words_into_segments(words, params["max_chars"])
         segments = _normalize_speakers(segments)
 
         text = str(full_text or "").strip() or _join_text([s.text for s in segments]) \
@@ -486,13 +458,14 @@ class Transcriber:
         except zipfile.BadZipFile:
             return None
 
-    def _transcribe_openai(self, audio_path, api: dict, base: str, cfg: dict,
+    def _transcribe_openai(self, audio_path, cfg: dict, base: str,
                            language: str | None) -> TranscriptResult:
         import httpx
 
+        api = cfg.get("api") or {}
         lang = _normalize_language(language if language is not None else cfg.get("language"))
         data: dict[str, str] = {
-            "model": str(api.get("model") or "whisper-1"),
+            "model": str(api.get("model") or "Qwen3-ASR"),
             "response_format": "verbose_json",
             "temperature": "0",
         }
@@ -511,7 +484,7 @@ class Transcriber:
                 data=data,
                 files={"file": (Path(audio_path).name, fh, "audio/wav")},
                 headers=headers,
-                timeout=max(10, int(api.get("timeout") or 600)),
+                timeout=max(10, int(cfg.get("timeout") or 600)),
             )
         if payload.status_code >= 400:
             raise RuntimeError(f"转写 API 返回 {payload.status_code}：{payload.text[:300]}")
@@ -539,7 +512,7 @@ class Transcriber:
             segments=_normalize_speakers(segments),
             language=lang or str(body.get("language") or ""),
             source="openai",
-            model=str(api.get("model") or "whisper-1"),
+            model=str(api.get("model") or "Qwen3-ASR"),
         )
 
     # ---------- 连通性探测 ----------
@@ -550,30 +523,34 @@ class Transcriber:
         base = (api.get("base_url") or "").rstrip("/")
         protocol = (api.get("protocol") or "gradio").lower()
         if not base:
-            return {"ok": False, "message": "未配置服务地址"}
+            return {"ok": True, "configured": False,
+                    "message": "未配置远程接口（自动模式只走内置服务）"}
 
         try:
             import httpx
             if protocol == "gradio":
                 resp = httpx.get(f"{base}/config", timeout=10)
                 if resp.status_code != 200:
-                    return {"ok": False, "message": f"服务返回 {resp.status_code}"}
+                    return {"ok": False, "configured": True,
+                            "message": f"服务返回 {resp.status_code}"}
                 names = [
                     str(dep.get("api_name") or "")
                     for dep in (resp.json().get("dependencies") or [])
                 ]
                 if not any("single_handler" in n for n in names):
-                    return {"ok": False,
+                    return {"ok": False, "configured": True,
                             "message": "服务可达，但没找到 single_handler 接口（可能不是 Qwen3-ASR 服务）"}
-                return {"ok": True, "message": "Gradio 服务可达，single_handler 接口已就绪"}
+                return {"ok": True, "configured": True,
+                        "message": "Gradio 服务可达，single_handler 接口已就绪"}
 
             resp = httpx.get(f"{base}/models", timeout=10)
             # 404 也算可达：有些服务不实现 /models
             if resp.status_code in (200, 404):
-                return {"ok": True, "message": f"OpenAI 兼容服务可达（HTTP {resp.status_code}）"}
-            return {"ok": False, "message": f"服务返回 {resp.status_code}"}
+                return {"ok": True, "configured": True,
+                        "message": f"OpenAI 兼容服务可达（HTTP {resp.status_code}）"}
+            return {"ok": False, "configured": True, "message": f"服务返回 {resp.status_code}"}
         except Exception as exc:                    # noqa: BLE001
-            return {"ok": False, "message": f"连接失败：{exc}"}
+            return {"ok": False, "configured": True, "message": f"连接失败：{exc}"}
 
 
 def _pick_srt(archive: zipfile.ZipFile) -> str:
@@ -620,16 +597,16 @@ def _explain_gradio_error(message: str) -> str:
 
     if "out of memory" in low or "outofmemory" in low:
         return ("显存不足：语音转写服务与视觉模型同时占卡。"
-                "请先在设置里把「并发槽数」设为 1、「每个视频最多抽几帧」降到 3–4，"
+                "请先把「同时处理的视频数」设为 1、「每个视频最多抽几帧」降到 3–4，"
                 "或在跑转写前先停止视觉服务（llama.cpp）")
     if "no such file" in low or "not found" in low:
         return f"服务端找不到文件：{text[:200]}"
     if "timed out" in low or "timeout" in low:
-        return "转写请求超时：服务可能还在加载模型，稍后重试或调大 whisper.api.timeout"
+        return "转写请求超时：服务可能还在加载模型，稍后重试或调大「请求超时」"
 
     hint = ""
     if "has not enabled verbose error reporting" in low:
-        hint = "（服务端未开启详细错误，具体原因需看 Qwen3_ASR 的启动日志）"
+        hint = "（服务端未开启详细错误，具体原因需看转写服务的启动日志）"
     return f"远程转写服务报错{hint}：{text[:300]}"
 
 
@@ -644,26 +621,6 @@ def _explain_connect_error(message: str, base: str) -> str:
     if any(token in low for token in ("10060", "timed out", "timeout")):
         return f"连接转写服务超时（{base}）：服务可能还在加载模型，稍后重试"
     return _explain_gradio_error(message)
-
-
-def _cuda_libs_present() -> bool:
-    """faster-whisper 缺 cublas 时不报错而是挂起，所以先探一下。"""
-    import ctypes
-    import sys
-
-    if sys.platform != "win32":
-        return True
-    for dll in ("cublas64_12.dll", "cublas64_13.dll"):
-        try:
-            ctypes.WinDLL(dll)
-            return True
-        except OSError:
-            continue
-    return False
-
-
-def paths_whisper_models() -> Path:
-    return Path(__file__).resolve().parent.parent.parent / "AI" / "models" / "whisper"
 
 
 transcriber = Transcriber()

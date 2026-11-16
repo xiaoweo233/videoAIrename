@@ -41,9 +41,12 @@ LIBS_DIR = BACKEND_DIR / "libs"
 
 # 内置 AI 运行时的默认位置（「补齐 AI 依赖与模型」会往这里放）
 LLAMA_DIR = AI_DIR / "llama-b12412-bin-win-cuda-13.5-x64"
-VISION_DIR = AI_DIR / "models" / "Qwen3.8-9B"
+VISION_DIR = AI_DIR / "models" / "Qwen3.5-4B"
 ASR_MODEL_DIR = AI_DIR / "models" / "Qwen" / "Qwen3-ASR-0.6B"
 ALIGNER_MODEL_DIR = AI_DIR / "models" / "Qwen" / "Qwen3-ForcedAligner-0.6B"
+SD_MODEL_DIR = AI_DIR / "models" / "speaker-diarization-community-1"
+ASR_SERVICE_DIR = BACKEND_DIR / "asr_service"
+ASR_RUNTIME_DIR = AI_DIR / "asr-python"
 
 IS_WINDOWS = os.name == "nt"
 

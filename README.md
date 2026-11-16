@@ -3,7 +3,8 @@
 把一堆手机拍回来的视频（`VID_20260801_190533.mp4` 这种）丢进去，
 本地大模型自己看画面、听内容，然后改成能看懂的日期化文件名，并补齐 NFO / SRT / 元数据。
 
-**全本地跑，不联网、不上传。** 视觉用 llama.cpp + Qwen3.8-9B，转写用 Qwen3-ASR。
+**全本地跑，不联网、不上传。** 视觉用 llama.cpp + Qwen3.5-4B，转写用内置 Qwen3-ASR。
+两者都可以切换成「自动（远程优先，回退本地）/ 只用远程接口 / 只用本地」。
 
 ---
 
@@ -12,9 +13,9 @@
 | 项 | 要求 |
 | --- | --- |
 | 系统 | Windows 10/11 x64（当前版本只在 Windows 上验证过） |
-| 显卡 | NVIDIA，**≥ 8 GB 显存**；12 GB 是舒适线，8 GB 需调小抽帧数 |
+| 显卡 | NVIDIA，**≥ 6 GB 显存**（Qwen3.5-4B）；同时开语音转写建议 8 GB 以上 |
 | 内存 | ≥ 16 GB（llama.cpp 的提示词缓存吃系统内存） |
-| 磁盘 | 约 11 GB 给 AI 资产 + 视频本身的临时空间 |
+| 磁盘 | 约 7.5 GB 给 AI 资产（另 3 GB 可选的 ASR 运行环境）+ 视频本身的临时空间 |
 | Python | 3.10+；**没装也行** —— 双击 `start.bat` 会自动在项目里放一个便携版 |
 
 > 显存不够时不要同时开视觉和转写两个服务：设置页会按显卡显存给出建议值。
@@ -40,7 +41,7 @@
 
 ## 三步跑起来
 
-1. **放 AI 资产**（约 10.4 GB，**不入库**，clone 下来是空的）
+1. **放 AI 资产**（约 7.4 GB，**不入库**，clone 下来是空的）
    模型和推理引擎因为体积太大没有进仓库，第一次用必须补齐。两种方式：
 
    - 打开页面 → 设置 → 系统 → 点「**补齐 AI 依赖与模型**」，自动下载缺的（走 HF-Mirror，支持断点续传）。
@@ -50,19 +51,22 @@
    AI/
      llama-b12412-bin-win-cuda-13.5-x64/llama-server.exe   # llama.cpp CUDA 版
      models/
-       Qwen3.8-9B/
-         Qwen3.8-9B-distill-heretic_nvfp4_q4_k_m.gguf      # 视觉模型 4.82 GB
-         mmproj-BF16.gguf                                  # 视觉投影层 0.86 GB
+       Qwen3.5-4B/
+         Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf   # 视觉模型 2.52 GB
+         mmproj-Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-BF16.gguf  # 视觉投影层 0.63 GB
        Qwen/
          Qwen3-ASR-0.6B/                                   # 转写 1.75 GB
          Qwen3-ForcedAligner-0.6B/                         # 词级对齐 1.71 GB
+       speaker-diarization-community-1/                     # 可选：说话人分离
    ```
 
    另外 `ffmpeg/`、`exiftool/` **不用自己找**：启动时缺哪个就自动下哪个（ffmpeg 约 115 MB、exiftool 约 11 MB，
    直接从网上拉，不经过模型仓库），只有一次；想手动放也行，放进仓库根目录的 `ffmpeg/`、`exiftool/` 就会被自动发现。
 
-   Qwen3-ASR 是独立项目，默认从 `../Qwen3_ASR` 找（自带便携 Python）。
-   放在别处就在设置 → AI 服务 → 转写服务里改「项目目录」。
+   **语音转写服务已经内置**（`后端/asr_service/`），不再依赖外部的 `Qwen3_ASR` 文件夹。
+   第一次用需要在 设置 → AI 服务 → 内置语音转写服务 里点「安装运行环境」：
+   会把 CUDA 版 torch、qwen-asr、pyannote.audio 装进 `AI/asr-python`（约 3 GB，走国内镜像）。
+   之前已经装好旧版 `../Qwen3_ASR`（WinPython）的机器会自动复用它，不用重装。
 
 2. **启动后端**：双击 `启动.bat`，或者手动
 

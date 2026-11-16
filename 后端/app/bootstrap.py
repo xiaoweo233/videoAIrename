@@ -51,10 +51,12 @@ REQUIRED_MODULES: dict[str, str] = {
     "uvicorn": "uvicorn",
     "httpx": "httpx",
     "pydantic": "pydantic",
+    # 内置转写服务的 /transcribe 走 multipart；主后端的自检也顺手把它装上
+    "multipart": "python-multipart",
 }
 
 OPTIONAL_MODULES: dict[str, str] = {
-    "faster_whisper": "faster-whisper",
+    # 远程转写走 Gradio 协议时需要；openai 协议和内置服务不需要
     "gradio_client": "gradio_client",
 }
 
@@ -231,9 +233,9 @@ def probe() -> dict[str, Any]:
 
 LLAMA_TAG = "b12412"
 LLAMA_DIRNAME = f"llama-{LLAMA_TAG}-bin-win-cuda-13.5-x64"
-VISION_REPO = "Noobito45/Qwen3.8-9B-heretic-uncensored-NVFP4-GGUF"
-VISION_FILE = "Qwen3.8-9B-distill-heretic_nvfp4_q4_k_m.gguf"
-VISION_MMPROJ = "mmproj-BF16.gguf"
+VISION_REPO = "HauhauCS/Qwen3.5-4B-Uncensored-HauhauCS-Aggressive"
+VISION_FILE = "Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+VISION_MMPROJ = "mmproj-Qwen3.5-4B-Uncensored-HauhauCS-Aggressive-BF16.gguf"
 ASR_REPO = "Qwen/Qwen3-ASR-0.6B"
 ALIGNER_REPO = "Qwen/Qwen3-ForcedAligner-0.6B"
 
@@ -315,14 +317,14 @@ def ai_assets() -> list[dict[str, Any]]:
         },
         {
             "id": "vision_model",
-            "label": "视觉大模型 Qwen3.8-9B（Q4_K_M）",
-            "detail": "核心推理模型，约 4.8 GB，缺了无法命名",
+            "label": "视觉大模型 Qwen3.5-4B（Q4_K_M）",
+            "detail": "核心推理模型，约 2.5 GB，缺了无法命名",
             "kind": "hf_file",
             "repo": VISION_REPO,
             "filename": VISION_FILE,
-            "target": f"AI/models/Qwen3.8-9B/{VISION_FILE}",
-            "check": f"AI/models/Qwen3.8-9B/{VISION_FILE}",
-            "size": 5_178_305_056,
+            "target": f"AI/models/Qwen3.5-4B/{VISION_FILE}",
+            "check": f"AI/models/Qwen3.5-4B/{VISION_FILE}",
+            "size": 2_707_513_696,
             "required": True,
         },
         {
@@ -332,9 +334,9 @@ def ai_assets() -> list[dict[str, Any]]:
             "kind": "hf_file",
             "repo": VISION_REPO,
             "filename": VISION_MMPROJ,
-            "target": f"AI/models/Qwen3.8-9B/{VISION_MMPROJ}",
-            "check": f"AI/models/Qwen3.8-9B/{VISION_MMPROJ}",
-            "size": 921_705_024,
+            "target": f"AI/models/Qwen3.5-4B/{VISION_MMPROJ}",
+            "check": f"AI/models/Qwen3.5-4B/{VISION_MMPROJ}",
+            "size": 675_568_768,
             "required": True,
         },
         {
@@ -1112,3 +1114,113 @@ def missing_packages() -> list[str]:
         if not _importable(module):
             out.append(package)
     return out
+
+
+# ---------------------------------------------------------------- 内置转写运行环境
+# Qwen3-ASR 需要 torch（CUDA 版）、qwen-asr、pyannote.audio。
+# 这些包体积大、和主后端无关，单独装到 AI/asr-python，不混进 后端/libs。
+
+ASR_TORCH_FIND_LINKS = "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+_ASR_IMPORT_PROBE = "import torch, torchaudio, qwen_asr, pyannote.audio"
+_ASR_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "data": None}
+ASR_STATUS_TTL = 60.0
+
+
+def _asr_requirements() -> Path:
+    return paths.ASR_SERVICE_DIR / "requirements.txt"
+
+
+def asr_runtime_status(force: bool = False) -> dict[str, Any]:
+    """检查内置转写运行环境是否可用。
+
+    `import torch` 要好几秒，所以结果缓存 60 秒；安装完会主动失效。
+    """
+    import time
+
+    cached = _ASR_STATUS_CACHE.get("data")
+    if cached is not None and not force \
+            and time.time() - float(_ASR_STATUS_CACHE.get("at") or 0) < ASR_STATUS_TTL:
+        return dict(cached)
+
+    target = paths.ASR_RUNTIME_DIR
+    installed = target.is_dir() and any(target.iterdir())
+    ok = False
+    if installed:
+        result = run([sys.executable, "-c", _ASR_IMPORT_PROBE],
+                     timeout=180, check=False)
+        ok = result.returncode == 0
+    data = {
+        "ok": ok,
+        "installed": installed,
+        "path": str(target),
+        "python": sys.executable,
+        "message": "运行环境已就绪" if ok else ("已安装但不完整，可重新安装" if installed else "尚未安装"),
+    }
+    _ASR_STATUS_CACHE.update({"at": time.time(), "data": data})
+    return dict(data)
+
+
+def _write_asr_pth() -> str:
+    """把 AI/asr-python 挂进解释器的 sys.path。
+
+    便携版 Python 带 python3xx._pth 时处于 isolated 模式，PYTHONPATH 会被忽略，
+    .pth 是子进程找到这些包的唯一可靠方式。
+    """
+    import sysconfig
+
+    purelib = Path(sysconfig.get_paths()["purelib"])
+    pth = purelib / "vair-asr.pth"
+    try:
+        purelib.mkdir(parents=True, exist_ok=True)
+        pth.write_text(str(paths.ASR_RUNTIME_DIR) + "\n", encoding="utf-8")
+    except OSError as exc:
+        return f"写入 {pth} 失败：{exc}"
+    return ""
+
+
+def install_asr_runtime() -> tuple[bool, str]:
+    """安装内置转写运行环境（下载量大，调用方应放到后台线程）。"""
+    if not pip_available():
+        ok, message = install_pip()
+        hub.log("info" if ok else "warn", message)
+        if not ok:
+            return False, message
+
+    requirements = _asr_requirements()
+    if not requirements.is_file():
+        return False, f"找不到依赖清单：{requirements}"
+
+    index = os.environ.get("PIP_INDEX_URL") or PIP_PRESETS["tsinghua"]
+    host = index.split("//", 1)[-1].split("/", 1)[0]
+    args = [
+        sys.executable, "-m", "pip", "install",
+        "--target", str(paths.ASR_RUNTIME_DIR), "--upgrade",
+        "--timeout", "120", "--retries", "10",
+        "-i", index,
+    ]
+    if host:
+        args += ["--trusted-host", host]
+    # Windows 上 PyPI 的 torch 是 CPU 版，CUDA 必须从这个镜像取。
+    args += ["--find-links", ASR_TORCH_FIND_LINKS, "-r", str(requirements)]
+
+    hub.info("安装内置转写运行环境（torch CUDA 约 3 GB，首次需要一段时间）…")
+    result = run(args, timeout=7200, check=False)
+    if result.returncode != 0:
+        tail = decode(result.stderr)[-800:]
+        return False, f"转写运行环境安装失败：{tail}"
+
+    note = _write_asr_pth()
+    if note:
+        return False, note
+
+    # 之前探测过「这个解释器跑不了 ASR」的缓存要作废，否则服务仍然报找不到 Python。
+    try:
+        from .services import _ASR_PY_CACHE
+        _ASR_PY_CACHE.clear()
+    except Exception:                               # noqa: BLE001
+        pass
+
+    status = asr_runtime_status(force=True)
+    if not status["ok"]:
+        return False, "依赖装完了，但 import 仍然失败；请查看上一条日志里的错误"
+    return True, f"转写运行环境已就绪（{paths.ASR_RUNTIME_DIR}）"

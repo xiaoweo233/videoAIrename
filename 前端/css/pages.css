@@ -311,6 +311,27 @@
   font-size: 11px;
 }
 
+/* 工作台「同时处理的视频数」：滑块要固定宽度，别被文字挤没了 */
+.control-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 168px;
+  flex: none;
+  margin-left: 8px;
+}
+
+.control-range .range {
+  width: 108px;
+  flex: none;
+}
+
+.control-range output {
+  flex: none;
+  min-width: 2.4em;
+  text-align: right;
+}
+
 .hint-dot {
   display: inline-grid;
   place-items: center;

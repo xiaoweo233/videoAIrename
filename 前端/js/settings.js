@@ -590,8 +590,9 @@
 
       var endpoint = V.$('[data-service-endpoint]', card);
       if (endpoint) {
+        var modelText = svc && svc.model ? ' · ' + svc.model : '';
         endpoint.textContent = svc
-          ? svc.endpoint + (svc.pid ? ' · PID ' + svc.pid : '')
+          ? svc.endpoint + modelText + (svc.pid ? ' · PID ' + svc.pid : '')
           : '—';
       }
 
@@ -623,6 +624,16 @@
       whisperTag.textContent = asr
         ? (asr.status === 'running' || asr.status === 'external' ? '服务就绪'
           : asr.status === 'starting' ? '启动中' : '未运行')
+        : '未检测';
+    }
+
+    var aiTag = q('[data-ai-tag]');
+    if (aiTag) {
+      var llama = map.llama;
+      aiTag.textContent = llama
+        ? (llama.status === 'running' || llama.status === 'external'
+          ? (llama.model || '服务就绪')
+          : llama.status === 'starting' ? '启动中' : '未运行')
         : '未检测';
     }
   }
@@ -928,6 +939,7 @@
     client.refreshServer().catch(function () {});
     client.refreshServices().catch(function () {});
     client.refreshRuntime().catch(function () {});
+    refreshAsrRuntime();
     client.get('/api/mirrors').then(renderMirrors).catch(function () {});
     client.checkAssets().then(function (report) {
       renderAssets(report);
@@ -939,11 +951,12 @@
 
   function currentAIConfig() {
     var cfg = {};
-    ['provider', 'base_url', 'api_key', 'model', 'timeout', 'retry_times',
-      'max_tokens', 'temperature', 'top_p', 'enforce_json_mode'].forEach(function (key) {
-      var el = V.$('[data-cfg="ai.' + key + '"]');
-      if (el) cfg[key] = readControl(el);
-    });
+    ['provider', 'backend', 'base_url', 'api_key', 'model', 'remote_model', 'timeout',
+      'retry_times', 'max_tokens', 'temperature', 'top_p', 'enforce_json_mode']
+      .forEach(function (key) {
+        var el = V.$('[data-cfg="ai.' + key + '"]');
+        if (el) cfg[key] = readControl(el);
+      });
     return cfg;
   }
 
@@ -961,8 +974,20 @@
   /**
    * 「拉取模型」之后把服务端的模型列成可点的标签。
    * <datalist> 只有输入时才弹，用户根本发现不了；这里直接铺开，点一下就填进去。
+   * 本地 GGUF 与远程模型混在一起：点本地条目会切换权重并重启内置服务，
+   * 点远程条目只填「远程模型名」。
    */
-  function renderModelPicker(models) {
+  var localModelEntries = [];
+
+  function findLocalEntry(name) {
+    for (var i = 0; i < localModelEntries.length; i += 1) {
+      if (localModelEntries[i].name === name) return localModelEntries[i];
+    }
+    return null;
+  }
+
+  function renderModelPicker(models, entries) {
+    localModelEntries = entries || [];
     var box = q('[data-ai-model-picker]');
     if (!box) return;
     var list = (models || []).filter(Boolean);
@@ -973,20 +998,26 @@
     }
     box.hidden = false;
     box.innerHTML = list.map(function (name) {
+      var local = findLocalEntry(name);
       return '<button type="button" class="model-picker__item" data-model-pick="' +
-        V.escapeHTML(name) + '" title="' + V.escapeHTML(name) + '">' +
-        V.escapeHTML(name) + '</button>';
+        V.escapeHTML(name) + '" data-local="' + (local ? '1' : '0') +
+        '" title="' + V.escapeHTML(local ? name + '（本地）' : name) + '">' +
+        V.escapeHTML(name) + (local ? ' <small>本地</small>' : '') + '</button>';
     }).join('');
     syncModelPicker();
   }
 
   function syncModelPicker() {
     var box = q('[data-ai-model-picker]');
-    var input = V.$('[data-cfg="ai.model"]');
-    if (!box || !input) return;
-    var current = input.value;
+    var remote = V.$('[data-cfg="ai.remote_model"]');
+    var local = V.$('[data-cfg="ai.model"]');
+    if (!box) return;
+    var remoteName = (remote && remote.value) || '';
+    var localName = (local && local.value) || '';
     V.$$('[data-model-pick]', box).forEach(function (btn) {
-      btn.classList.toggle('is-active', btn.dataset.modelPick === current);
+      var name = btn.dataset.modelPick;
+      var isLocal = btn.dataset.local === '1';
+      btn.classList.toggle('is-active', isLocal ? name === localName : name === remoteName);
     });
   }
 
@@ -1002,16 +1033,39 @@
           return '<option value="' + V.escapeHTML(name) + '"></option>';
         }).join('');
       }
-      renderModelPicker(result.models);
-      var input = V.$('[data-cfg="ai.model"]');
-      if (input && !input.value && result.models && result.models.length) {
-        input.value = result.models[0];
+      renderModelPicker(result.models, result.local_entries);
+      var input = V.$('[data-cfg="ai.remote_model"]');
+      if (input && !input.value && result.remote && result.remote.length) {
+        input.value = result.remote[0];
         syncModelPicker();
         markDirty();
       }
     }).catch(function (err) {
       setOut('[data-ai-test-out]', 'bad', '拉取失败：' + client.errorText(err));
     });
+  }
+
+  /** 切换本地 GGUF：模型文件、投影层、模型名一起改，然后重启内置服务。 */
+  function applyLocalModel(entry) {
+    var client = api();
+    if (!client || !client.isLive()) { offlineNotice(); return; }
+    var llama = { model: entry.model };
+    if (entry.mmproj) llama.mmproj = entry.mmproj;
+    setOut('[data-ai-test-out]', 'info', '正在切换到本地模型 ' + entry.name + '…');
+    client.saveConfig({ ai: { model: entry.name }, services: { llama: llama } })
+      .then(function (result) {
+        applyToForm(result.config);
+        setOut('[data-ai-test-out]', 'info', '配置已保存，正在重启内置视觉服务…');
+        return client.serviceAction('llama', 'restart');
+      })
+      .then(function (result) {
+        if (result && result.services) renderServices(result.services);
+        setOut('[data-ai-test-out]', result && result.ok ? 'ok' : 'bad',
+          (result && result.message) || '已提交重启，模型加载需要一些时间');
+      })
+      .catch(function (err) {
+        setOut('[data-ai-test-out]', 'bad', '切换失败：' + client.errorText(err));
+      });
   }
 
   function testWhisper(mode) {
@@ -1024,12 +1078,47 @@
       if (result.text) {
         detail += '\n识别结果：' + result.text;
       }
-      if (result.probe && result.probe.message) {
-        detail += '\n服务状态：' + result.probe.message;
+      if (result.local && result.local.message) {
+        detail += '\n内置服务：' + result.local.message;
+      }
+      if (result.remote && result.remote.message) {
+        detail += '\n远程接口：' + result.remote.message;
       }
       setOut('[data-whisper-test-out]', result.ok ? 'ok' : 'bad', detail);
     }).catch(function (err) {
       setOut('[data-whisper-test-out]', 'bad', '测试失败：' + client.errorText(err));
+    });
+  }
+
+  /* ---------------- 内置转写运行环境 ---------------- */
+
+  function renderAsrRuntime(result) {
+    var note = q('[data-asr-runtime-note]');
+    if (!note) return;
+    var text = (result && (result.message_override || result.message)) || '未知状态';
+    if (result && result.running) text = '正在安装…' + text;
+    else if (result && result.path) text += ' · ' + result.path;
+    note.textContent = text;
+  }
+
+  function refreshAsrRuntime() {
+    var client = api();
+    if (!client || !client.isLive()) return;
+    client.asrRuntime().then(function (result) {
+      renderAsrRuntime(result);
+      if (result && result.running) setTimeout(refreshAsrRuntime, 5000);
+    }).catch(function () {});
+  }
+
+  function installAsrRuntime() {
+    var client = api();
+    if (!client || !client.isLive()) { offlineNotice(); return; }
+    setOut('[data-asr-runtime-out]', 'info', '正在开始安装，约 3 GB，请留意下方日志…');
+    client.installAsrRuntime().then(function (result) {
+      setOut('[data-asr-runtime-out]', result.ok ? 'info' : 'bad', result.message || '');
+      setTimeout(refreshAsrRuntime, 3000);
+    }).catch(function (err) {
+      setOut('[data-asr-runtime-out]', 'bad', '启动安装失败：' + client.errorText(err));
     });
   }
 
@@ -1079,6 +1168,7 @@
       case 'ai-models': fetchModels(); break;
       case 'whisper-probe': testWhisper('probe'); break;
       case 'whisper-test': testWhisper('real'); break;
+      case 'asr-runtime-install': installAsrRuntime(); break;
       case 'asset-check': checkAssets(); break;
       case 'asset-fetch': fetchAssets(); break;
       case 'deps-install': installDeps(); break;
@@ -1100,7 +1190,7 @@
       var isRange = (el.getAttribute('type') || '').toLowerCase() === 'range';
       var handler = function () {
         if (isRange) syncSlider(el);
-        if (el.dataset.cfg === 'ai.model') syncModelPicker();
+        if (el.dataset.cfg === 'ai.model' || el.dataset.cfg === 'ai.remote_model') syncModelPicker();
         syncMirrors(el);
         markDirty();
         // 「自动保存」这个开关两个方向都得立刻落盘：关掉它时定时器已经不排了，
@@ -1135,13 +1225,18 @@
       V.on(box, 'input', function () { renderPrompts(); });
     });
 
-    // 模型标签：点一下即选中
+    // 模型标签：点一下即选中；本地条目直接切换权重并重启服务
     var picker = q('[data-ai-model-picker]');
     if (picker) {
       V.on(picker, 'click', function (e) {
         var btn = e.target && e.target.closest ? e.target.closest('[data-model-pick]') : null;
         if (!btn) return;
-        var input = V.$('[data-cfg="ai.model"]');
+        var entry = findLocalEntry(btn.dataset.modelPick);
+        if (entry) {
+          applyLocalModel(entry);
+          return;
+        }
+        var input = V.$('[data-cfg="ai.remote_model"]');
         if (input) input.value = btn.dataset.modelPick;
         syncModelPicker();
         markDirty();

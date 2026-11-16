@@ -30,6 +30,9 @@ STOPPED, STARTING, RUNNING, ERROR, EXTERNAL = "stopped", "starting", "running", 
 LOG_TAIL_LINES = 40
 HEALTH_INTERVAL = 2.0
 
+# 解释器能否跑 ASR 的探测结果（路径 → bool）。import torch 要几秒，别每次启动都重测。
+_ASR_PY_CACHE: dict[str, bool] = {}
+
 
 @dataclass
 class ServiceState:
@@ -43,6 +46,7 @@ class ServiceState:
     started_at: float = 0.0
     log_tail: deque = field(default_factory=lambda: deque(maxlen=LOG_TAIL_LINES))
     endpoint: str = ""
+    model: str = ""             # 服务实际加载的模型（llama: /v1/models 的 id）
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +59,7 @@ class ServiceState:
             "message": self.message,
             "started_at": self.started_at,
             "endpoint": self.endpoint or f"http://{self.host}:{self.port}",
+            "model": self.model,
             "logs": list(self.log_tail),
         }
 
@@ -153,8 +158,14 @@ class ServiceManager:
             "-c", str(int(cfg.get("ctx_size") or 8192)),
             "-ngl", str(int(cfg.get("gpu_layers") or 99)),
         ]
+        # llama.cpp 默认拿文件名当模型 id，换模型后前端请求里的 ai.model 就对不上。
+        # 统一指定别名，让 /v1/models 返回的名字始终可控。
+        alias = str(cfg.get("alias") or
+                    (config_mod.load().get("ai") or {}).get("model") or "").strip()
+        if alias:
+            args += ["--alias", alias]
         # 并发槽数直接决定 KV cache 占用：4 个槽 = 4 份上下文显存。
-        # 实测 9B + 4 槽 + 8k 上下文会在 11GB 卡上 OOM，所以显式传 -np。
+        # 实测 + 4 槽 + 8k 上下文会在 6GB 卡上 OOM，所以显式传 -np。
         parallel = int(cfg.get("parallel") or 1)
         if parallel > 0:
             args += ["-np", str(parallel)]
@@ -172,29 +183,39 @@ class ServiceManager:
 
     def _asr_command(self) -> tuple[list[str], str, dict[str, str]]:
         cfg = self._cfg().get("asr") or {}
-        root = paths.abs_path(str(cfg.get("dir") or "../Qwen3_ASR"))
-        app_dir = root / "app"
-        if not (app_dir / "main.py").is_file():
-            raise FileNotFoundError(
-                f"未找到 Qwen3-ASR 项目：{app_dir}\n"
-                "请在配置里把 services.asr.dir 指向 Qwen3_ASR 所在目录。")
+        root = paths.abs_path(str(cfg.get("dir") or "")) if cfg.get("dir") \
+            else paths.ASR_SERVICE_DIR
 
-        python = self._find_asr_python(root, str(cfg.get("python") or ""))
+        # 两种布局都支持：本项目内置的 后端/asr_service/main.py，
+        # 以及旧版外部项目的 <根>/app/main.py。
+        legacy = (root / "app" / "main.py").is_file()
+        app_dir = (root / "app") if legacy else root
+        main_py = app_dir / "main.py"
+        if not main_py.is_file():
+            raise FileNotFoundError(
+                f"未找到内置语音转写服务：{main_py}\n"
+                "请确认 后端/asr_service 目录完整（不要单独拷贝 exe 或删掉该目录）。")
+
+        python = self._find_asr_python(root, str(cfg.get("python") or ""), legacy)
         if not python:
             raise FileNotFoundError(
-                f"未找到 Qwen3-ASR 的 Python 解释器（在 {root} 下找过 WPy64-*/python/python.exe）")
+                "未找到能运行 Qwen3-ASR 的 Python。\n"
+                "请在 设置 → AI 服务 → 内置语音转写服务 里点「安装运行环境」，"
+                "或把 services.asr.python 指向一个已装好 torch / qwen-asr / pyannote.audio 的解释器。")
 
         asr_model = paths.abs_path(str(cfg.get("asr_model") or "")) \
             if cfg.get("asr_model") else paths.ASR_MODEL_DIR
         aligner = paths.abs_path(str(cfg.get("aligner_model") or "")) \
             if cfg.get("aligner_model") else paths.ALIGNER_MODEL_DIR
+        sd_model = paths.abs_path(str(cfg.get("sd_model") or "")) \
+            if cfg.get("sd_model") else paths.SD_MODEL_DIR
 
         if not asr_model.is_dir():
             raise FileNotFoundError(
                 f"未找到 Qwen3-ASR 模型目录：{asr_model}\n请点击「补齐 AI 依赖与模型」下载。")
 
         args = [
-            str(python), "main.py",
+            str(python), str(main_py),
             "--asr-checkpoint", str(asr_model),
             "--aligner-checkpoint", str(aligner),
             "--backend", "transformers",
@@ -202,31 +223,74 @@ class ServiceManager:
             "--ip", str(cfg.get("host") or "127.0.0.1"),
             "--port", str(int(cfg.get("port") or 7867)),
         ]
+        if not legacy:
+            # 内置服务自己就是项目的一部分，路径都显式传，别让它去猜上级目录。
+            args += ["--sd-model", str(sd_model)]
         extra = str(cfg.get("extra_args") or "").strip()
         if extra:
             args += extra.split()
 
-        # 便携 Python 需要自己的 Scripts 与项目 bin 在 PATH 上
+        # 转写服务内部要调 ffmpeg/ffprobe。子进程不继承我们的工具缓存，
+        # 所以把项目内置目录直接放进 PATH，免得用户系统里没装就报错。
         python_dir = python.parent
         env = {
             "HF_HUB_OFFLINE": "1",
+            "PYTHONUTF8": "1",
             "PATH": os.pathsep.join([
                 str(python_dir), str(python_dir / "Scripts"),
+                str(paths.FFMPEG_DIR), str(paths.EXIFTOOL_DIR),
                 str(root / "bin"), os.environ.get("PATH", ""),
             ]),
         }
         return args, str(app_dir), env
 
     @staticmethod
-    def _find_asr_python(root: Path, configured: str) -> Path | None:
+    def _python_has_asr(exe: Path) -> bool:
+        """真跑一次 import：看文件存在没用，依赖缺失的解释器一样起不来。"""
+        key = str(exe)
+        cached = _ASR_PY_CACHE.get(key)
+        if cached is not None:
+            return cached
+        ok = False
+        try:
+            result = subprocess.run(
+                [str(exe), "-c", "import torch, torchaudio, qwen_asr, pyannote.audio"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=120, creationflags=CREATE_NO_WINDOW,
+            )
+            ok = result.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            ok = False
+        _ASR_PY_CACHE[key] = ok
+        return ok
+
+    def _find_asr_python(self, root: Path, configured: str, legacy: bool) -> Path | None:
         if configured:
             candidate = paths.abs_path(configured)
             if candidate.is_file():
                 return candidate
-        for pattern in ("WPy64-*/python/python.exe", "*/python/python.exe", "python.exe"):
-            for found in root.glob(pattern):
-                if found.is_file():
-                    return found
+
+        candidates: list[Path] = [
+            paths.ROOT / "python" / "python.exe",       # 本项目便携版
+            paths.ASR_RUNTIME_DIR / "python.exe",       # 预留的独立运行时位置
+            paths.ROOT / "后端" / "python" / "python.exe",
+        ]
+        roots = [root]
+        if legacy:
+            roots.append(paths.ROOT.parent / "Qwen3_ASR")
+        roots.append(paths.ROOT.parent / "Qwen3_ASR")   # 旧版外部项目（兼容）
+        for extra_root in roots:
+            for pattern in ("WPy64-*/python/python.exe", "*/python/python.exe"):
+                candidates.extend(sorted(extra_root.glob(pattern)))
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate)
+            if key in seen or not candidate.is_file():
+                continue
+            seen.add(key)
+            if self._python_has_asr(candidate):
+                return candidate
         return None
 
     # ---------- 健康检查 ----------
@@ -241,11 +305,31 @@ class ServiceManager:
                 resp = httpx.get(base + "/v1/models", timeout=3)
                 if resp.status_code < 400:
                     try:
-                        count = len(resp.json().get("data") or [])
+                        ids = [
+                            str(item.get("id") or "")
+                            for item in (resp.json().get("data") or [])
+                            if isinstance(item, dict) and item.get("id")
+                        ]
                     except ValueError:
-                        count = 0
-                    return True, f"已就绪（{count} 个模型）" if count else "已就绪"
+                        ids = []
+                    state.model = ids[0] if ids else ""
+                    return True, f"已就绪（{state.model}）" if state.model else "已就绪"
                 return False, f"HTTP {resp.status_code}"
+
+            # 内置服务优先 /health；旧版 Gradio 服务没有这个端点，回退 /config。
+            resp = httpx.get(base + "/health", timeout=3)
+            if resp.status_code < 400:
+                try:
+                    body = resp.json()
+                except ValueError:
+                    return True, "已就绪"
+                if body.get("ready") is False:
+                    return False, "正在加载模型…"
+                state.model = str(body.get("model") or "")
+                return True, f"已就绪（{state.model}）" if state.model else "已就绪"
+            if resp.status_code != 404:
+                return False, f"HTTP {resp.status_code}"
+
             resp = httpx.get(base + "/config", timeout=3)
             if resp.status_code < 400:
                 return True, "已就绪"
@@ -474,9 +558,19 @@ class ServiceManager:
         串行之后失败方一定是后起的转写服务，视觉这条主链路永远能起来。
         """
         cfg = self._cfg()
+        app_cfg = config_mod.load()
+        ai_backend = str((app_cfg.get("ai") or {}).get("backend") or "auto").lower()
+        whisper_backend = str((app_cfg.get("whisper") or {}).get("backend") or "auto").lower()
         for name in ("llama", "asr"):
             section = cfg.get(name) or {}
             if not section.get("enable", True):
+                continue
+            # 只用远程接口时不该占显存起本地服务 —— 用户选这个就是为了这一点。
+            if name == "llama" and ai_backend == "api":
+                hub.debug("视觉模型设为只用远程接口，跳过内置 llama.cpp")
+                continue
+            if name == "asr" and whisper_backend == "api":
+                hub.debug("语音转写设为只用远程接口，跳过内置 Qwen3-ASR")
                 continue
             # 已在跑（外部或残留）就别重复起
             self._sync_from_config()

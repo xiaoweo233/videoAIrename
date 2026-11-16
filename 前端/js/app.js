@@ -74,7 +74,7 @@
   var STAGES = [
     { key: 'probe', name: '探测', sub: 'Probe', from: 0, to: 6 },
     { key: 'frames', name: '抽帧', sub: 'Frames', from: 6, to: 30 },
-    { key: 'transcribe', name: '转写', sub: 'Whisper', from: 6, to: 30 },
+    { key: 'transcribe', name: '转写', sub: 'Qwen3-ASR', from: 6, to: 30 },
     { key: 'merge', name: '合并', sub: 'Merge', from: 30, to: 62 },
     { key: 'analyze', name: 'AI 分析', sub: 'Reasoning', from: 62, to: 90 },
     { key: 'commit', name: '落盘', sub: 'Commit', from: 90, to: 100 }

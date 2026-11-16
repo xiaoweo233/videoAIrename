@@ -248,6 +248,19 @@
                 <button class="switch" type="button" role="switch" aria-checked="false" aria-label="预览模式" data-preview-toggle><span></span></button>
               </div>
             </div>
+            <div class="control-card__row">
+              <div class="switch-row">
+                <span class="switch-row__icon"><svg class="icon"><use href="#i-layers"/></svg></span>
+                <div class="switch-row__text">
+                  <strong>同时处理的视频数 <span class="hint-dot" title="一次并行处理几个视频；显存不足就调小">?</span></strong>
+                  <small>视觉模型是瓶颈，显存不够就调小</small>
+                </div>
+                <div class="control-range">
+                  <input class="range" type="range" min="1" max="8" step="1" aria-label="同时处理的视频数" data-cfg="runtime.ai_workers" data-cfg-type="number" value="2">
+                  <output class="mono">2</output>
+                </div>
+              </div>
+            </div>
             <div class="control-card__foot">
               <span><svg class="icon"><use href="#i-shield"/></svg>本地推理 · 素材不出设备</span>
               <span><svg class="icon"><use href="#i-cpu"/></svg><span data-gpu-label>CUDA 加速可用</span></span>
@@ -386,11 +399,11 @@
               <article class="stage stage--small" data-stage="2">
                 <button class="stage__head" type="button" aria-expanded="false">
                   <span class="stage__num">2b</span>
-                  <span class="stage__title"><strong>转写</strong><small>Whisper</small></span>
+                  <span class="stage__title"><strong>转写</strong><small>Qwen3-ASR</small></span>
                   <span class="stage__state"><i></i><span>待机</span></span>
                   <svg class="icon stage__chevron"><use href="#i-chevron-down"/></svg>
                 </button>
-                <p class="stage__desc">Whisper 单路串行（占 GPU），输出带时间轴字幕。</p>
+                <p class="stage__desc">Qwen3-ASR 单路串行（占 GPU），输出带时间轴字幕。</p>
                 <div class="stage__detail">
                   <dl><div><dt>语言</dt><dd data-stage-metric>—</dd></div><div><dt>设备</dt><dd>CUDA</dd></div></dl>
                   <p class="stage__log" data-stage-log>等待语音识别。</p>
@@ -634,7 +647,7 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-wave"/></svg></div>
-                  <div><h2>语音转写</h2><p>本地 faster-whisper 与远程接口的取舍。</p></div>
+                  <div><h2>语音转写</h2><p>只用 Qwen3-ASR：内置服务 + 可选远程接口。</p></div>
                   <span class="settings-card__tag" data-whisper-tag>未检测</span>
                 </div>
                 <div class="setting-row">
@@ -644,65 +657,13 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>转写方式</strong><small>auto 会先试远程接口，不可用再落到本地模型</small></div>
+                  <div class="setting-row__label"><strong>转写方式</strong><small>自动：配了远程就先试远程，失败改用内置服务；没配远程直接用内置</small></div>
                   <div class="setting-row__control">
                     <select class="select" aria-label="转写方式" data-cfg="whisper.backend">
                       <option value="auto">自动（远程优先，回退本地）</option>
                       <option value="api">只用远程接口</option>
-                      <option value="local">只用本地模型</option>
+                      <option value="local">只用本地模型（内置服务）</option>
                     </select>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>优先使用远程接口</strong><small>远程通常比本地快，且不占显存</small></div>
-                  <div class="setting-row__control">
-                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="优先使用远程接口" data-cfg="whisper.prefer_api" data-cfg-type="bool"><span></span></button>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>本地模型缺失时自动下载</strong><small>会从镜像站拉取，几百 MB 到 1.5 GB</small></div>
-                  <div class="setting-row__control">
-                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="本地模型缺失时自动下载" data-cfg="whisper.allow_download" data-cfg-type="bool"><span></span></button>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>本地模型</strong><small>faster-whisper 的模型名或本地目录</small></div>
-                  <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" aria-label="本地转写模型" data-cfg="whisper.model" placeholder="large-v3-turbo">
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>计算设备</strong><small>auto 会优先用 CUDA，显卡不可用时回落 CPU</small></div>
-                  <div class="setting-row__control">
-                    <select class="select" aria-label="计算设备" data-cfg="whisper.device">
-                      <option value="auto">自动</option>
-                      <option value="cuda">CUDA（显卡）</option>
-                      <option value="cpu">CPU</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>计算精度</strong><small>显存不够时降到 int8，精度换空间</small></div>
-                  <div class="setting-row__control">
-                    <select class="select" aria-label="计算精度" data-cfg="whisper.compute_type">
-                      <option value="int8_float16">int8_float16（推荐）</option>
-                      <option value="float16">float16</option>
-                      <option value="int8">int8</option>
-                      <option value="int8_float32">int8_float32</option>
-                      <option value="float32">float32</option>
-                    </select>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>并行转写数</strong><small>本地模型会串行占用显卡，这里主要影响远程接口</small></div>
-                  <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="1" max="16" step="1" aria-label="并行转写数" data-cfg="whisper.workers" data-cfg-type="number" value="4"><output class="mono">4</output>
-                  </div>
-                </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>VAD 过滤</strong><small>跳过静音片段，减少无效转写与幻觉</small></div>
-                  <div class="setting-row__control">
-                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="VAD 过滤" data-cfg="whisper.vad_filter" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
                 <div class="setting-row">
@@ -718,12 +679,6 @@
                     </select>
                   </div>
                 </div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>本地转写使用显卡</strong><small>关闭后即使有显卡也走 CPU（很慢）</small></div>
-                  <div class="setting-row__control">
-                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="本地转写使用显卡" data-cfg="whisper.use_gpu" data-cfg-type="bool"><span></span></button>
-                  </div>
-                </div>
                 <div class="test-out" data-whisper-test-out hidden></div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>转写链路自检</strong><small>「真实转写测试」会合成一句话跑完整链路，冷启动可能要几十秒</small></div>
@@ -737,10 +692,10 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
-                  <div><h2>远程转写接口</h2><p>默认指向本项目内置的 Qwen3-ASR 服务，换别的服务也能接。</p></div>
+                  <div><h2>远程转写接口</h2><p>不填也能用：自动模式会直接走内置 Qwen3-ASR 服务。</p></div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>协议</strong><small>Qwen3-ASR 走 gradio；OpenAI 兼容服务走 openai</small></div>
+                  <div class="setting-row__label"><strong>协议</strong><small>远程接口用：Qwen3-ASR WebUI 走 gradio，OpenAI 兼容服务走 openai</small></div>
                   <div class="setting-row__control">
                     <select class="select" aria-label="转写接口协议" data-cfg="whisper.api.protocol">
                       <option value="gradio">Gradio</option>
@@ -749,9 +704,9 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>接口地址</strong><small>不带路径，只到主机与端口</small></div>
+                  <div class="setting-row__label"><strong>接口地址</strong><small>留空 = 未配置远程；不带路径，只到主机与端口</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" aria-label="转写接口地址" data-cfg="whisper.api.base_url" placeholder="http://127.0.0.1:7867">
+                    <input class="input mono" type="text" aria-label="转写接口地址" data-cfg="whisper.api.base_url" placeholder="留空则只用内置服务">
                   </div>
                 </div>
                 <div class="setting-row">
@@ -766,43 +721,43 @@
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>模型名</strong><small>仅 OpenAI 兼容协议需要填</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" aria-label="转写模型名" data-cfg="whisper.api.model" placeholder="whisper-1">
+                    <input class="input mono" type="text" aria-label="转写模型名" data-cfg="whisper.api.model" placeholder="Qwen3-ASR">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>请求超时</strong><small>长视频转写要留足时间，单位秒</small></div>
+                  <div class="setting-row__label"><strong>请求超时</strong><small>长视频转写要留足时间，单位秒；内置服务也用它</small></div>
                   <div class="setting-row__control">
-                    <input class="input mono" type="number" min="10" max="3600" step="10" aria-label="转写请求超时" data-cfg="whisper.api.timeout" data-cfg-type="number">
+                    <input class="input mono" type="number" min="10" max="3600" step="10" aria-label="转写请求超时" data-cfg="whisper.timeout" data-cfg-type="number">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>转写提示词</strong><small>喂给模型的领域词汇，能显著减少同音错字</small></div>
+                  <div class="setting-row__label"><strong>转写提示词</strong><small>喂给模型的领域词汇，能显著减少同音错字（仅 OpenAI 协议）</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <input class="input mono" type="text" aria-label="转写提示词" data-cfg="whisper.api.prompt" placeholder="例如：口播、空镜、B-roll">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>输出热词</strong><small>逗号分隔，强制模型优先识别这些词</small></div>
+                  <div class="setting-row__label"><strong>输出热词</strong><small>逗号分隔，强制模型优先识别这些词；内置与远程都生效</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" aria-label="输出热词" data-cfg="whisper.api.hotwords" placeholder="产品名、人名、专有名词">
+                    <input class="input mono" type="text" aria-label="输出热词" data-cfg="whisper.hotwords" placeholder="产品名、人名、专有名词">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>说话人分离</strong><small>区分不同说话人，需要服务端支持</small></div>
+                  <div class="setting-row__label"><strong>说话人分离</strong><small>区分不同说话人；内置服务需要 speaker-diarization 模型</small></div>
                   <div class="setting-row__control">
-                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="说话人分离" data-cfg="whisper.api.diarize" data-cfg-type="bool"><span></span></button>
+                    <button class="switch" type="button" role="switch" aria-checked="false" aria-label="说话人分离" data-cfg="whisper.diarize" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>单句最大字数</strong><small>超过就切句，字幕更好读</small></div>
+                  <div class="setting-row__label"><strong>单句最大字数</strong><small>超过就切句，字幕更好读；内置与远程都生效</small></div>
                   <div class="setting-row__control setting-row__control--slider">
-                    <input class="range" type="range" min="8" max="80" step="1" aria-label="单句最大字数" data-cfg="whisper.api.max_chars" data-cfg-type="number" data-suffix=" 字" value="20"><output class="mono">20 字</output>
+                    <input class="range" type="range" min="8" max="80" step="1" aria-label="单句最大字数" data-cfg="whisper.max_chars" data-cfg-type="number" data-suffix=" 字" value="20"><output class="mono">20 字</output>
                   </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>自动断句与标点</strong><small>关闭后 SRT 会是一整段没有标点的文本</small></div>
                   <div class="setting-row__control">
-                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动断句与标点" data-cfg="whisper.api.punc" data-cfg-type="bool"><span></span></button>
+                    <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动断句与标点" data-cfg="whisper.punc" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
               </div>
@@ -954,8 +909,18 @@
               <div class="card settings-card">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-sparkles"/></svg></div>
-                  <div><h2>视觉模型接口</h2><p>默认指向本项目内置的 llama.cpp 服务，也可换成任何 OpenAI 兼容服务。</p></div>
+                  <div><h2>视觉模型接口</h2><p>默认使用本项目内置的 llama.cpp + Qwen3.5-4B，也可接任何 OpenAI 兼容服务。</p></div>
                   <span class="settings-card__tag settings-card__tag--cyan" data-ai-tag>未检测</span>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>调用方式</strong><small>自动：配了远程就先试远程，失败改用内置；没配远程直接用内置</small></div>
+                  <div class="setting-row__control">
+                    <select class="select" aria-label="视觉模型调用方式" data-cfg="ai.backend">
+                      <option value="auto">自动（远程优先，回退本地）</option>
+                      <option value="api">只用远程接口</option>
+                      <option value="local">只用本地模型</option>
+                    </select>
+                  </div>
                 </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>协议</strong><small>目前只实现了 OpenAI 兼容协议</small></div>
@@ -967,13 +932,19 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>Base URL</strong><small>要带 /v1，例如 http://127.0.0.1:8084/v1</small></div>
+                  <div class="setting-row__label"><strong>本地模型名</strong><small>与内置服务启动时写入的别名一致；在下方服务卡里可切换权重文件</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" aria-label="AI 服务地址" data-cfg="ai.base_url" placeholder="http://127.0.0.1:8084/v1">
+                    <input class="input mono" type="text" aria-label="本地模型名" data-cfg="ai.model" placeholder="Qwen3.5-4B">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>API Key</strong><small>本地服务通常留空；仅保存在本机 config.json</small></div>
+                  <div class="setting-row__label"><strong>远程接口地址</strong><small>要带 /v1，例如 https://api.example.com/v1；留空则只用本地模型</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="远程 AI 服务地址" data-cfg="ai.base_url" placeholder="留空则只用本地模型">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>API Key</strong><small>远程服务才需要；仅保存在本机 config.json</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <div class="input-with-action">
                       <input class="input mono" type="password" aria-label="AI 服务密钥" data-cfg="ai.api_key" data-secret autocomplete="off">
@@ -982,10 +953,10 @@
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>模型名</strong><small>点「拉取模型」列出服务端已加载的模型，再点一下就能选</small></div>
+                  <div class="setting-row__label"><strong>远程模型名</strong><small>点「拉取模型」列出本地 GGUF 与远程模型，点一下就能选</small></div>
                   <div class="setting-row__control setting-row__control--wide setting-row__control--stack">
                     <div class="input-with-action">
-                      <input class="input mono" type="text" aria-label="AI 模型名" data-cfg="ai.model" list="ai-model-list" placeholder="Qwen3.8-9B">
+                      <input class="input mono" type="text" aria-label="远程模型名" data-cfg="ai.remote_model" list="ai-model-list" placeholder="留空则跟随远程服务默认">
                       <button class="btn btn--ghost btn--sm" type="button" data-action="ai-models">拉取模型</button>
                     </div>
                     <datalist id="ai-model-list" data-ai-model-list></datalist>
@@ -1041,7 +1012,7 @@
               <div class="card settings-card" data-service-card="llama">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-cpu"/></svg></div>
-                  <div><h2>内置视觉服务（llama.cpp）</h2><p>本项目自带的推理引擎，用显卡跑 Qwen3.8-9B 看图写标题。</p></div>
+                  <div><h2>内置视觉服务（llama.cpp）</h2><p>本项目自带的推理引擎，用显卡跑 Qwen3.5-4B 看图写标题。</p></div>
                   <span class="settings-card__tag" data-service-tag>未运行</span>
                 </div>
                 <div class="svc-bar">
@@ -1122,7 +1093,7 @@
               <div class="card settings-card" data-service-card="asr">
                 <div class="settings-card__head">
                   <div class="settings-card__icon"><svg class="icon"><use href="#i-wave"/></svg></div>
-                  <div><h2>内置语音转写服务（Qwen3-ASR）</h2><p>独立项目，带自己的便携 Python，本项目只负责把它拉起来。</p></div>
+                  <div><h2>内置语音转写服务（Qwen3-ASR）</h2><p>随本项目一起分发，复用项目的 Python 与 AI/models 下的模型。</p></div>
                   <span class="settings-card__tag" data-service-tag>未运行</span>
                 </div>
                 <div class="svc-bar">
@@ -1138,26 +1109,33 @@
                   <summary>查看服务输出</summary>
                   <pre class="svc-logs__pre" data-service-logs>（暂无输出）</pre>
                 </details>
+                <div class="test-out" data-asr-runtime-out hidden></div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>启动时自动拉起</strong><small>关掉后需要手动点「启动」</small></div>
+                  <div class="setting-row__label"><strong>转写运行环境</strong><small data-asr-runtime-note>检测中…</small></div>
+                  <div class="setting-row__control">
+                    <button class="btn btn--soft btn--sm" type="button" data-action="asr-runtime-install">安装运行环境</button>
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>启动时自动拉起</strong><small>关掉后需要手动点「启动」；设为「只用远程接口」时也会跳过</small></div>
                   <div class="setting-row__control">
                     <button class="switch" type="button" role="switch" aria-checked="true" aria-label="自动拉起转写服务" data-cfg="services.asr.enable" data-cfg-type="bool"><span></span></button>
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>项目目录</strong><small>Qwen3_ASR 所在目录，可用相对仓库根的路径</small></div>
+                  <div class="setting-row__label"><strong>服务代码目录</strong><small>默认就是项目内置的 后端/asr_service，通常不用改</small></div>
                   <div class="setting-row__control setting-row__control--wide">
-                    <input class="input mono" type="text" aria-label="Qwen3-ASR 项目目录" data-cfg="services.asr.dir" placeholder="../Qwen3_ASR">
+                    <input class="input mono" type="text" aria-label="转写服务代码目录" data-cfg="services.asr.dir" placeholder="后端/asr_service">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>Python 解释器</strong><small>留空则自动在项目目录下找 WPy64-*/python/python.exe</small></div>
+                  <div class="setting-row__label"><strong>Python 解释器</strong><small>留空自动探测：项目便携 Python → 已装好的旧版环境</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <input class="input mono" type="text" aria-label="转写服务 Python 解释器" data-cfg="services.asr.python" placeholder="留空自动探测">
                   </div>
                 </div>
                 <div class="setting-row">
-                  <div class="setting-row__label"><strong>识别模型目录</strong><small>留空则用本项目 AI/models 下的默认位置</small></div>
+                  <div class="setting-row__label"><strong>识别模型目录</strong><small>留空则用本项目 AI/models/Qwen 下的默认位置</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <input class="input mono" type="text" aria-label="识别模型目录" data-cfg="services.asr.asr_model" placeholder="留空用内置默认">
                   </div>
@@ -1166,6 +1144,12 @@
                   <div class="setting-row__label"><strong>对齐模型目录</strong><small>用于生成精确时间轴，留空用内置默认</small></div>
                   <div class="setting-row__control setting-row__control--wide">
                     <input class="input mono" type="text" aria-label="对齐模型目录" data-cfg="services.asr.aligner_model" placeholder="留空用内置默认">
+                  </div>
+                </div>
+                <div class="setting-row">
+                  <div class="setting-row__label"><strong>说话人分离模型</strong><small>留空用 AI/models/speaker-diarization-community-1；缺了只跳过角色识别</small></div>
+                  <div class="setting-row__control setting-row__control--wide">
+                    <input class="input mono" type="text" aria-label="说话人分离模型目录" data-cfg="services.asr.sd_model" placeholder="留空用内置默认">
                   </div>
                 </div>
                 <div class="setting-row">

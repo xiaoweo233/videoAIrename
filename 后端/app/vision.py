@@ -1,7 +1,13 @@
 """视觉大模型调用：把关键帧 + 转写文本 + 元信息交给多模态模型，拿回结构化命名数据。
 
-走 OpenAI 兼容的 `/chat/completions`（llama.cpp server、vLLM、Ollama、各家云服务都兼容）。
-图片用 base64 data URL，多帧就是 content 数组里多个 image_url 对象。
+本地走内置 llama.cpp 的 OpenAI 兼容接口，远程走任何 OpenAI 兼容服务。
+
+调度语义（配置 `ai.backend`）：
+
+- `local`：只用内置服务。
+- `api`  ：只用远程接口，失败直接报错，**不回退**（用户明确选远程时别自作主张）。
+- `auto` ：配了远程接口就优先远程；单条失败回退本地重试。远程连续失败 2 次后，
+           本任务内固定走本地，避免每个文件都先卡一次超时。
 """
 
 from __future__ import annotations
@@ -15,10 +21,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import config as config_mod
+from . import paths
 from .hub import hub
 
 TRANSCRIPT_BUDGET = 1200          # 转写文本塞给模型的字符上限
 RETRY_BACKOFF_CAP = 8
+REMOTE_FAIL_CAP = 2               # 远程连续失败这么多次后，本任务固定走本地
 
 # 上下文溢出类的错误：重试没用，直接告诉用户调小帧数
 _CONTEXT_HINTS = (
@@ -37,6 +45,7 @@ class AIResult:
     retries: int = 0
     elapsed_ms: int = 0
     model: str = ""
+    source: str = ""             # local | remote
 
     @property
     def ok(self) -> bool:
@@ -51,6 +60,7 @@ class AIResult:
             "retries": self.retries,
             "elapsed_ms": self.elapsed_ms,
             "model": self.model,
+            "source": self.source,
         }
 
 
@@ -62,6 +72,41 @@ def is_context_error(message: str) -> bool:
 class VisionClient:
     def __init__(self) -> None:
         self._lock = threading.Lock()
+        self._remote_fails = 0
+
+    # ---------- 任务级状态 ----------
+
+    def reset_task_state(self) -> None:
+        with self._lock:
+            self._remote_fails = 0
+
+    # ---------- 端点解析 ----------
+
+    @staticmethod
+    def local_base_url(cfg: dict | None = None) -> str:
+        """内置 llama.cpp 的地址由服务端口推出，不单独配置，避免两处不同步。"""
+        cfg = cfg or config_mod.load()
+        llama = (cfg.get("services") or {}).get("llama") or {}
+        host = str(llama.get("host") or "127.0.0.1")
+        port = int(llama.get("port") or 8084)
+        return f"http://{host}:{port}/v1"
+
+    @classmethod
+    def local_endpoint(cls, cfg: dict) -> dict[str, Any]:
+        endpoint = dict(cfg)
+        endpoint.update({"base_url": cls.local_base_url(), "api_key": "",
+                         "model": str(cfg.get("model") or "")})
+        return endpoint
+
+    @staticmethod
+    def remote_endpoint(cfg: dict) -> dict[str, Any] | None:
+        base = str(cfg.get("base_url") or "").strip()
+        if not base:
+            return None
+        endpoint = dict(cfg)
+        endpoint.update({"base_url": base, "api_key": str(cfg.get("api_key") or ""),
+                         "model": str(cfg.get("remote_model") or cfg.get("model") or "")})
+        return endpoint
 
     # ---------- 主入口 ----------
 
@@ -76,30 +121,62 @@ class VisionClient:
     ) -> AIResult:
         cfg = config_mod.load()["ai"]
         started = time.perf_counter()
-        model = str(cfg.get("model") or "")
+        backend = str(cfg.get("backend") or "auto").lower()
 
         if not frames:
-            return AIResult(model=model, error="没有可用关键帧，无法进行视觉分析")
+            return AIResult(model=str(cfg.get("model") or ""), error="没有可用关键帧，无法进行视觉分析")
         if cfg.get("provider", "openai") != "openai":
             # gemini 走不同的 SDK；本项目默认全本地，先只支持 OpenAI 兼容协议。
-            return AIResult(model=model, error=f"暂不支持的 provider：{cfg.get('provider')}")
+            return AIResult(model=str(cfg.get("model") or ""),
+                            error=f"暂不支持的 provider：{cfg.get('provider')}")
 
         messages = self._build_messages(cfg, frames, transcript, original_name, duration)
-        raw, retries, error = self._chat(cfg, messages, stop)
+
+        if backend == "api":
+            endpoint = self.remote_endpoint(cfg)
+            if endpoint is None:
+                return AIResult(error="未配置远程接口地址（设置 → AI → 远程接口地址）")
+            raw, retries, error = self._chat(endpoint, messages, stop)
+            source = "remote"
+        elif backend == "local":
+            endpoint = self.local_endpoint(cfg)
+            raw, retries, error = self._chat(endpoint, messages, stop)
+            source = "local"
+        else:
+            endpoint = self.remote_endpoint(cfg)
+            with self._lock:
+                remote_ok = endpoint is not None and self._remote_fails < REMOTE_FAIL_CAP
+            if remote_ok:
+                raw, retries, error = self._chat(endpoint, messages, stop)  # type: ignore[arg-type]
+                source = "remote"
+                if error:
+                    with self._lock:
+                        self._remote_fails += 1
+                    hub.debug(f"远程视觉调用失败，回退本地：{error}")
+                    endpoint = self.local_endpoint(cfg)
+                    raw, retries, error = self._chat(endpoint, messages, stop)
+                    source = "local"
+            else:
+                endpoint = self.local_endpoint(cfg)
+                raw, retries, error = self._chat(endpoint, messages, stop)
+                source = "local"
+
+        model = str((endpoint or {}).get("model") or "")
+        elapsed = int((time.perf_counter() - started) * 1000)
 
         if error:
             return AIResult(model=model, raw=raw, error=error, retries=retries,
-                            elapsed_ms=int((time.perf_counter() - started) * 1000))
+                            elapsed_ms=elapsed, source=source)
 
         try:
             title, plot, tags = self._parse(raw)
         except ValueError as exc:
             return AIResult(model=model, raw=raw, error=str(exc), retries=retries,
-                            elapsed_ms=int((time.perf_counter() - started) * 1000))
+                            elapsed_ms=elapsed, source=source)
 
         return AIResult(
             title=title, plot=plot, tags=tags, raw=raw, retries=retries, model=model,
-            elapsed_ms=int((time.perf_counter() - started) * 1000),
+            elapsed_ms=elapsed, source=source,
         )
 
     # ---------- 请求构建 ----------
@@ -284,50 +361,93 @@ class VisionClient:
     # ---------- 连接测试 ----------
 
     def list_models(self, cfg: dict | None = None) -> dict[str, Any]:
-        """探测 AI 服务可用模型。设置页「测试连接」用。"""
+        """列出可用模型：本地 GGUF + 远程 /v1/models。设置页「拉取模型」用。"""
+        cfg = cfg or config_mod.load()["ai"]
+        local_entries = scan_local_models()
+        models = [entry["name"] for entry in local_entries]
+
+        remote: list[str] = []
+        remote_message = ""
+        endpoint = self.remote_endpoint(cfg)
+        if endpoint is not None:
+            ok, message, remote = self._remote_models(endpoint)
+            remote_message = message
+            models += [name for name in remote if name and name not in models]
+
+        if not models:
+            return {"ok": False,
+                    "message": remote_message or "没找到本地模型，也未配置远程接口",
+                    "models": [], "local_entries": [], "remote": []}
+
+        parts = [f"本地 {len(local_entries)} 个"] if local_entries else []
+        if remote:
+            parts.append(f"远程 {len(remote)} 个")
+        return {
+            "ok": True,
+            "message": "、".join(parts) or remote_message or "服务可达",
+            "models": models,
+            "local_entries": local_entries,
+            "remote": remote,
+        }
+
+    @staticmethod
+    def _remote_models(endpoint: dict) -> tuple[bool, str, list[str]]:
         import httpx
 
-        cfg = cfg or config_mod.load()["ai"]
-        base = str(cfg.get("base_url") or "").rstrip("/")
-        if not base:
-            return {"ok": False, "message": "未配置服务地址", "models": []}
-
+        base = str(endpoint.get("base_url") or "").rstrip("/")
         headers = {}
-        if cfg.get("api_key"):
-            headers["Authorization"] = f"Bearer {cfg['api_key']}"
+        if endpoint.get("api_key"):
+            headers["Authorization"] = f"Bearer {endpoint['api_key']}"
         try:
             resp = httpx.get(base + "/models", headers=headers, timeout=10)
         except Exception as exc:                    # noqa: BLE001
-            return {"ok": False, "message": f"连接失败：{exc}", "models": []}
-
+            return False, f"远程连接失败：{exc}", []
         if resp.status_code >= 400:
-            return {"ok": False, "message": f"服务返回 {resp.status_code}", "models": []}
-
+            return False, f"远程服务返回 {resp.status_code}", []
         try:
             body = resp.json()
         except ValueError:
-            return {"ok": False, "message": "服务返回非 JSON", "models": []}
-
+            return False, "远程服务返回非 JSON", []
         models = [
             str(item.get("id") or "")
             for item in (body.get("data") or [])
             if isinstance(item, dict) and item.get("id")
         ]
-        return {
-            "ok": True,
-            "message": f"服务可达，共 {len(models)} 个模型" if models else "服务可达",
-            "models": models,
-        }
+        return True, (f"远程 {len(models)} 个模型" if models else "远程服务可达"), models
 
     def test(self, cfg: dict | None = None) -> dict[str, Any]:
         """端到端连接测试：发一句话，看模型是否真的能回。"""
+        cfg = cfg or config_mod.load()["ai"]
+        backend = str(cfg.get("backend") or "auto").lower()
+
+        if backend == "api":
+            endpoint = self.remote_endpoint(cfg)
+            if endpoint is None:
+                return {"ok": False, "message": "未配置远程接口地址"}
+            return self._ping(endpoint, "远程")
+
+        if backend == "local":
+            return self._ping(self.local_endpoint(cfg), "本地")
+
+        endpoint = self.remote_endpoint(cfg)
+        if endpoint is not None:
+            result = self._ping(endpoint, "远程")
+            if result.get("ok"):
+                return result
+            local = self._ping(self.local_endpoint(cfg), "本地")
+            if local.get("ok"):
+                return {**local, "message": f"远程失败（{result.get('message')}），本地可用："
+                                            + str(local.get("message") or "")}
+            return {**local, "message": f"远程失败（{result.get('message')}）；本地也失败："
+                                        + str(local.get("message") or "")}
+        return self._ping(self.local_endpoint(cfg), "本地")
+
+    def _ping(self, cfg: dict, label: str) -> dict[str, Any]:
         import httpx
 
-        cfg = cfg or config_mod.load()["ai"]
         base = str(cfg.get("base_url") or "").rstrip("/")
         if not base:
-            return {"ok": False, "message": "未配置服务地址"}
-
+            return {"ok": False, "message": f"未配置{label}服务地址"}
         payload = {
             "model": str(cfg.get("model") or ""),
             "messages": [{"role": "user", "content": "只回复两个字：就绪"}],
@@ -340,14 +460,47 @@ class VisionClient:
         try:
             resp = httpx.post(base + "/chat/completions", json=payload, headers=headers, timeout=30)
         except Exception as exc:                    # noqa: BLE001
-            return {"ok": False, "message": f"请求失败：{exc}"}
-
+            return {"ok": False, "message": f"{label}请求失败：{exc}"}
         if resp.status_code >= 400:
-            return {"ok": False, "message": f"服务返回 {resp.status_code}：{resp.text[:200]}"}
+            return {"ok": False, "message": f"{label}服务返回 {resp.status_code}：{resp.text[:200]}"}
         content = self._extract_content(resp)
         if not content:
-            return {"ok": False, "message": "服务可达但返回空内容"}
-        return {"ok": True, "message": f"模型已响应：{content[:40]}"}
+            return {"ok": False, "message": f"{label}服务可达但返回空内容"}
+        return {"ok": True, "message": f"{label}模型已响应：{content[:40]}",
+                "source": "local" if label == "本地" else "remote"}
+
+
+def scan_local_models() -> list[dict[str, Any]]:
+    """扫描 AI/models/*/*.gguf（排除 mmproj），找出可切换的本地视觉模型。"""
+    cfg = config_mod.load()
+    current = paths.abs_path(str(((cfg.get("services") or {}).get("llama") or {}).get("model") or ""))
+    alias = str((cfg.get("ai") or {}).get("model") or "")
+
+    entries: list[dict[str, Any]] = []
+    root = paths.AI_DIR / "models"
+    if not root.is_dir():
+        return entries
+    for gguf in sorted(root.glob("*/*.gguf")):
+        if gguf.name.lower().startswith("mmproj"):
+            continue
+        try:
+            is_current = gguf.resolve() == current.resolve()
+        except OSError:
+            is_current = False
+        if is_current and alias:
+            name = alias
+        else:
+            # 去掉常见的量化后缀，标签短一点
+            name = re.sub(r"-(?:Q\d(?:_[A-Z0-9_]+)?|IQ\d_[A-Z0-9_]+|f16|fp16|bf16)$",
+                          "", gguf.stem, flags=re.IGNORECASE) or gguf.stem
+        mmproj = next(iter(sorted(gguf.parent.glob("mmproj*.gguf"))), None)
+        entries.append({
+            "name": name,
+            "model": paths.rel_path(gguf),
+            "mmproj": paths.rel_path(mmproj) if mmproj else "",
+            "current": is_current,
+        })
+    return entries
 
 
 vision = VisionClient()

@@ -496,6 +496,10 @@
     serviceAction: function (name, action) {
       return request('POST', '/api/services/' + name + '/' + action, {}, { timeout: 60000 });
     },
+    asrRuntime: function () { return request('GET', '/api/asr/runtime', null, { timeout: 60000 }); },
+    installAsrRuntime: function () {
+      return request('POST', '/api/asr/runtime/install', {}, { timeout: 30000 });
+    },
 
     /* 依赖与模型 */
     checkAssets: function () { return request('GET', '/api/bootstrap/check', null, { timeout: 60000 }); },

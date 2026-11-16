@@ -264,18 +264,19 @@ def ai_test(payload: dict = Body(default={})) -> dict[str, Any]:
 def whisper_test(payload: dict = Body(default={})) -> dict[str, Any]:
     """真实转写测试：现场合成一句话，走一遍完整转写链路。"""
     mode = str(payload.get("mode") or "real")
+    local = transcriber.probe_local()
+    remote = transcriber.probe_remote()
 
     if mode == "probe":
-        return transcriber.probe_remote()
-
-    remote = transcriber.probe_remote()
-    if not remote.get("ok"):
-        return {"ok": False, "message": f"转写服务不可用：{remote.get('message')}",
-                "probe": remote}
+        parts = [f"内置：{local.get('message')}",
+                 f"远程：{remote.get('message')}"]
+        ok = bool(local.get("ok")) or bool(remote.get("ok") and remote.get("configured"))
+        return {"ok": ok, "message": " · ".join(parts),
+                "local": local, "remote": remote}
 
     audio, note = tts.synthesize()
     if audio is None:
-        return {"ok": False, "message": note, "probe": remote}
+        return {"ok": False, "message": note, "local": local, "remote": remote}
 
     try:
         result = transcriber.run(audio)
@@ -287,10 +288,10 @@ def whisper_test(payload: dict = Body(default={})) -> dict[str, Any]:
 
     if result.error:
         return {"ok": False, "message": f"转写失败：{result.error}",
-                "probe": remote, "source": result.source}
+                "local": local, "remote": remote, "source": result.source}
     if not (result.text or "").strip():
         return {"ok": False, "message": "服务返回了空文本，模型可能还在加载",
-                "probe": remote, "source": result.source}
+                "local": local, "remote": remote, "source": result.source}
 
     return {
         "ok": True,
@@ -299,8 +300,49 @@ def whisper_test(payload: dict = Body(default={})) -> dict[str, Any]:
         "text": result.text[:300],
         "source": result.source,
         "elapsed_ms": result.elapsed_ms,
-        "probe": remote,
+        "local": local,
+        "remote": remote,
     }
+
+
+# ---------------------------------------------------------------- 内置转写运行环境
+
+_asr_runtime_lock = threading.Lock()
+_asr_runtime_running = False
+_asr_runtime_message = ""
+
+
+@router.get("/api/asr/runtime")
+def asr_runtime() -> dict[str, Any]:
+    with _asr_runtime_lock:
+        running, message = _asr_runtime_running, _asr_runtime_message
+    return {**bootstrap.asr_runtime_status(), "running": running, "message_override": message}
+
+
+@router.post("/api/asr/runtime/install")
+def asr_runtime_install() -> dict[str, Any]:
+    global _asr_runtime_running, _asr_runtime_message
+    with _asr_runtime_lock:
+        if _asr_runtime_running:
+            return {"ok": True, "message": "正在安装，请稍候"}
+        _asr_runtime_running = True
+        _asr_runtime_message = ""
+
+    def worker() -> None:
+        global _asr_runtime_running, _asr_runtime_message
+        try:
+            ok, message = bootstrap.install_asr_runtime()
+            _asr_runtime_message = message
+            hub.log("info" if ok else "warn", f"转写运行环境：{message}")
+        except Exception as exc:                    # noqa: BLE001
+            _asr_runtime_message = f"安装异常：{exc}"
+            hub.warn(_asr_runtime_message)
+        finally:
+            with _asr_runtime_lock:
+                _asr_runtime_running = False
+
+    threading.Thread(target=worker, daemon=True, name="vair-asr-runtime").start()
+    return {"ok": True, "message": "已开始安装内置转写运行环境（约 3 GB，请留意日志）"}
 
 
 # ---------------------------------------------------------------- AI 服务

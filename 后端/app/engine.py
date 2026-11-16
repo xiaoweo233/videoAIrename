@@ -3,7 +3,7 @@
 并发模型：
 - `runtime.ai_workers` 个文件同时处理（视觉模型是瓶颈，按显存调）。
 - 每个文件内部的抽帧走一个共享线程池（`frames.workers`），避免多个文件各开一个池把机器打死。
-- 本地 Whisper 在 `transcribe.py` 里自己加锁串行 —— GPU 只有一个。
+- 转写在 `transcribe.py` 里自己加锁串行 —— GPU 只有一个。
 
 停止语义：`StopToken` 只在**文件边界**检查，正在跑的文件让它跑完。这样不会留下半截文件。
 """
@@ -24,6 +24,7 @@ from .hub import hub
 from .pipeline import CANCELED, FAILED, PENDING, REVIEW, RUNNING, SKIPPED, SUCCESS, FileItem, Pipeline
 from .services import services
 from .transcribe import transcriber
+from .vision import vision
 
 CIRCUIT_BREAKER_THRESHOLD = 5       # 连续失败这么多个文件就自动停
 REVIEWS_FILE = "reviews.json"
@@ -145,6 +146,7 @@ class Engine:
             self._stop.clear()
             self._consecutive_failures = 0
             transcriber.reset_task_state()
+            vision.reset_task_state()
             self._thread = threading.Thread(target=self._run, daemon=True, name="vair-engine")
             self._thread.start()
 

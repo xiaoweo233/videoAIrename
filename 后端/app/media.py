@@ -273,7 +273,7 @@ def frames_to_data_urls(frames: list[bytes]) -> list[str]:
 
 
 def extract_audio(video: str | os.PathLike[str], out_dir: str | os.PathLike[str] | None = None) -> Path:
-    """抽 16k 单声道 wav，给 Whisper / 远程 ASR 用。"""
+    """抽 16k 单声道 wav，给内置 / 远程 ASR 用。"""
     ffmpeg = paths.tool("ffmpeg")
     if not ffmpeg:
         raise MediaError("未找到 ffmpeg")

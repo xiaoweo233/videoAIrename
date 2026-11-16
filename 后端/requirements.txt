@@ -14,17 +14,10 @@ httpx>=0.27
 pydantic>=2.5
 python-multipart>=0.0.9
 
-# ---------- 按需：本地语音转写 ----------
-# whisper.backend=local，或 auto 模式下远程不可用时走本地。
-faster-whisper>=1.0
-tqdm>=4.66
-
 # ---------- 按需：远程转写协议 gradio ----------
-# 调用 Qwen3-ASR 这类 Gradio 服务必需；用 openai 协议可不装。
+# 调用外部 Qwen3-ASR 这类 Gradio 服务必需；用 openai 协议或只用内置服务可不装。
 gradio_client>=1.0
 
-# ---------- 按需：Windows + NVIDIA 的 CUDA 运行库 ----------
-# ctranslate2 缺 cublas64_12.dll 时不会报错而是**挂起**，所以显卡机器建议装上。
-# 仅 Windows 需要；纯 CPU 转写可省略。
-nvidia-cublas-cu12>=12.4; sys_platform == "win32"
-nvidia-cudnn-cu12>=9.1; sys_platform == "win32"
+# ---------- 内置语音转写（Qwen3-ASR） ----------
+# 不在这里装：体积约 3 GB，而且需要 CUDA 版 torch（PyPI 的 Windows wheel 是 CPU 版）。
+# 见 后端/asr_service/requirements.txt，由「设置 → AI 服务 → 安装运行环境」执行。
