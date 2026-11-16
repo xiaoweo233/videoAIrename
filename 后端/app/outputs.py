@@ -4,8 +4,10 @@ ExifTool 中文写元数据是本项目最容易踩坑的地方，规则如下�
 
 - 文件路径**必须作为独立 argv 参数**，不能塞进 ArgFile（`"-@" + path` 这种拼法会失效）。
 - `-charset exiftool=` 只认 Latin / UTF8，**不认 cp936**，所以编码靠「ArgFile 用什么字节写」控制。
-- 写要分两遍：`ItemList:*` / `XMP-*` 用 UTF-8；`Keys:*`（QuickTime 盒）用 **GBK**，
+- 写要分两遍：`XMP-*` 用 UTF-8；`Keys:*`（QuickTime 盒）用 **GBK**，
   因为 Windows 资源管理器的「属性 → 详细信息」按系统 ANSI 解码 Keys 盒。
+- **不要写 `ItemList:Title/Description/Comment`**：只要这几项存在，资源管理器就
+  改读 ItemList 且解析失败，标题/备注全空（详见 `_build_tags` 注释）。
 - 读与写相反：读的 ArgFile 用 UTF-8，且**要带** `-charset filename=UTF8`。
 - 优先用 `exiftool_files/perl.exe exiftool.pl`，规避 `exiftool(-k).exe` 的
   `-- press ENTER --` 交互挂起。
@@ -83,19 +85,24 @@ def _run_exiftool(groups: list[tuple[list[str], str]],
 # ---------- 写入 ----------
 
 def _build_tags(title: str, plot: str, tags: list[str], original_name: str) -> tuple[list[str], list[str]]:
-    """返回 (UTF-8 遍的标签, GBK 遍的标签)。"""
-    utf8_tags: list[str] = []
+    """返回 (UTF-8 遍的标签, GBK 遍的标签)。
+
+    **不要写 ItemList 的文本标签**（Title/Description/Comment）：Windows 11 的
+    MP4 属性处理器一旦发现 ItemList 里有这些字段，就只读 ItemList、不再读
+    QuickTime Keys，而它又解析不出 ExifTool 写的 ItemList 文本 —— 结果就是
+    「详细信息」里的标题、备注全是空的。实测：同一文件只保留 Keys(GBK) 时
+    资源管理器正确显示，加上 ItemList:Title 后立刻变空。所以这里先删掉旧的
+    ItemList 文本标签，再用 XMP + Keys 两路写入。
+    """
+    # 清掉老版本写进去的 ItemList 文本标签（不存在时 ExifTool 会忽略）
+    utf8_tags: list[str] = ["-ItemList:Title=", "-ItemList:Description=", "-ItemList:Comment="]
     gbk_tags: list[str] = []
 
     if title:
-        utf8_tags += [f"-ItemList:Title={title}", f"-XMP-dc:Title={title}"]
+        utf8_tags.append(f"-XMP-dc:Title={title}")
         gbk_tags.append(f"-Keys:Title={title}")
     if plot:
-        utf8_tags += [
-            f"-ItemList:Description={plot}",
-            f"-ItemList:Comment={plot}",
-            f"-XMP-dc:Description={plot}",
-        ]
+        utf8_tags.append(f"-XMP-dc:Description={plot}")
         gbk_tags += [f"-Keys:Description={plot}", f"-Keys:Comment={plot}"]
     if tags:
         joined = "，".join(tags)
@@ -134,7 +141,7 @@ def write_metadata(
     problems: list[str] = []
     target = str(video)
 
-    # 第 1 遍：UTF-8（ItemList / XMP）。参数与路径同处一个 UTF-8 ArgFile。
+    # 第 1 遍：UTF-8（XMP + 清掉旧 ItemList 文本）。参数与路径同处一个 UTF-8 ArgFile。
     if utf8_tags:
         try:
             result = _run_exiftool([
