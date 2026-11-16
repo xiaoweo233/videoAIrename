@@ -17,6 +17,68 @@ import torch
 from audio_utils import AudioUtils
 
 
+# qwen-asr 只认完整语言名（"Chinese"），主后端传的是 ISO 码（"zh"）。
+# 这里把界面/配置里可能出现的形式统一转过去，未知值直接透传，
+# 让 qwen-asr 自己报错，避免悄悄按自动识别处理。
+_ASR_LANG_NAMES = {
+    "chinese", "english", "cantonese", "arabic", "german", "french", "spanish",
+    "portuguese", "indonesian", "italian", "korean", "russian", "thai",
+    "vietnamese", "japanese", "turkish", "hindi", "malay", "dutch", "swedish",
+    "danish", "finnish", "polish", "czech", "filipino", "persian", "greek",
+    "romanian", "hungarian", "macedonian",
+}
+_LANG_ALIASES = {
+    # 中文
+    "zh": "Chinese", "zh-cn": "Chinese", "zh-hans": "Chinese", "cmn": "Chinese",
+    "中文": "Chinese", "汉语": "Chinese", "普通话": "Chinese",
+    "zh-tw": "Chinese", "zh-hant": "Chinese", "zh-hk": "Cantonese",
+    # 粤语
+    "yue": "Cantonese", "zh-yue": "Cantonese", "粤语": "Cantonese", "广东话": "Cantonese",
+    # 其他常用
+    "en": "English", "en-us": "English", "en-gb": "English", "英语": "English",
+    "ja": "Japanese", "jp": "Japanese", "日语": "Japanese", "日本語": "Japanese",
+    "ko": "Korean", "kr": "Korean", "韩语": "Korean", "한국어": "Korean",
+    "fr": "French", "法语": "French",
+    "de": "German", "德语": "German",
+    "es": "Spanish", "西班牙语": "Spanish",
+    "ru": "Russian", "俄语": "Russian",
+    "pt": "Portuguese", "葡萄牙语": "Portuguese",
+    "ar": "Arabic", "阿拉伯语": "Arabic",
+    "th": "Thai", "泰语": "Thai",
+    "vi": "Vietnamese", "越南语": "Vietnamese",
+    "it": "Italian", "意大利语": "Italian",
+    "id": "Indonesian", "印尼语": "Indonesian",
+    "ms": "Malay", "马来语": "Malay",
+    "hi": "Hindi", "印地语": "Hindi",
+    "tr": "Turkish", "土耳其语": "Turkish",
+    "nl": "Dutch", "荷兰语": "Dutch",
+    "sv": "Swedish", "瑞典语": "Swedish",
+    "da": "Danish", "丹麦语": "Danish",
+    "fi": "Finnish", "芬兰语": "Finnish",
+    "pl": "Polish", "波兰语": "Polish",
+    "cs": "Czech", "捷克语": "Czech",
+    "fil": "Filipino", "tl": "Filipino", "菲律宾语": "Filipino",
+    "fa": "Persian", "波斯语": "Persian",
+    "el": "Greek", "希腊语": "Greek",
+    "ro": "Romanian", "罗马尼亚语": "Romanian",
+    "hu": "Hungarian", "匈牙利语": "Hungarian",
+    "mk": "Macedonian", "马其顿语": "Macedonian",
+}
+
+
+def _qwen_language(value: str) -> str | None:
+    """把 ISO 码 / 中文名 / 完整名都归一成 qwen-asr 要的语言名。"""
+    text = str(value or "").strip()
+    if text.lower() in ("", "auto", "none", "自动", "自动识别"):
+        return None
+    name = _LANG_ALIASES.get(text.lower()) or _LANG_ALIASES.get(text)
+    if name:
+        return name
+    if text.lower() in _ASR_LANG_NAMES:
+        return text[:1].upper() + text[1:].lower()
+    return text
+
+
 class TranscribeEngine:
     def __init__(self, hub, sd_model_path: str = "") -> None:
         self.hub = hub
@@ -32,7 +94,7 @@ class TranscribeEngine:
         try:
             speakers = self._diarize(std_wav) if diarize else None
             chunks = AudioUtils.split_audio(std_wav, max_seconds)
-            language = None if lang in ("", "auto", "自动识别") else lang
+            language = _qwen_language(lang)
             system_prompt = self._build_system_prompt(hotwords)
 
             all_text = ""

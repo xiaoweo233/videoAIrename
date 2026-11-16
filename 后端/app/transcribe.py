@@ -33,6 +33,8 @@ GRADIO_LANG_MAP = {
     "zh": "Chinese",
     "en": "English",
     "yue": "Cantonese",
+    "ja": "Japanese",
+    "ko": "Korean",
 }
 
 _SENTENCE_END = "。！？!?…；;"
