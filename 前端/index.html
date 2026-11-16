@@ -1109,13 +1109,6 @@
                   <summary>查看服务输出</summary>
                   <pre class="svc-logs__pre" data-service-logs>（暂无输出）</pre>
                 </details>
-                <div class="test-out" data-asr-runtime-out hidden></div>
-                <div class="setting-row">
-                  <div class="setting-row__label"><strong>转写运行环境</strong><small data-asr-runtime-note>检测中…</small></div>
-                  <div class="setting-row__control">
-                    <button class="btn btn--soft btn--sm" type="button" data-action="asr-runtime-install">安装运行环境</button>
-                  </div>
-                </div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>启动时自动拉起</strong><small>关掉后需要手动点「启动」；设为「只用远程接口」时也会跳过</small></div>
                   <div class="setting-row__control">
@@ -1206,16 +1199,24 @@
                     <span class="asset-row__state">—</span>
                   </div>
                 </div>
+                <div class="asset-row" data-asr-runtime-row data-state="missing">
+                  <span class="asset-row__dot"></span>
+                  <div class="asset-row__main"><strong>转写运行环境（torch / qwen-asr / pyannote）</strong><small data-asr-runtime-note>检测中…</small></div>
+                  <span class="asset-row__size mono">约 3 GB</span>
+                  <span class="asset-row__state" data-asr-runtime-state>检测中</span>
+                </div>
                 <div class="dl-bar" data-dl-bar hidden>
                   <div class="dl-bar__head"><span data-dl-label>准备中…</span><span class="mono" data-dl-percent>0%</span></div>
                   <div class="dl-bar__track"><span data-dl-fill></span></div>
                 </div>
                 <div class="test-out" data-bootstrap-out hidden></div>
+                <div class="test-out" data-asr-runtime-out hidden></div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>补齐操作</strong><small>下载走镜像站，支持断点续传；大模型约 5 GB，请留出磁盘与时间</small></div>
                   <div class="setting-row__control">
                     <button class="btn btn--ghost btn--sm" type="button" data-action="asset-check">检查缺失项</button>
                     <button class="btn btn--ghost btn--sm" type="button" data-action="deps-install">安装 Python 依赖</button>
+                    <button class="btn btn--ghost btn--sm" type="button" data-action="asr-runtime-install" data-asr-runtime-install>安装转写环境</button>
                     <button class="btn btn--primary btn--sm" type="button" data-action="asset-fetch">补齐缺失项</button>
                   </div>
                 </div>

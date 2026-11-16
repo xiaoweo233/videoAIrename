@@ -1099,6 +1099,22 @@
     if (result && result.running) text = '正在安装…' + text;
     else if (result && result.path) text += ' · ' + result.path;
     note.textContent = text;
+
+    // 在「AI 依赖与模型」里按资产行的样式显示状态
+    var state = 'missing';
+    var stateText = '未安装';
+    if (result && result.ok) { state = 'present'; stateText = '已就绪'; }
+    else if (result && result.running) { state = 'partial'; stateText = '安装中'; }
+    else if (result && result.installed) { state = 'partial'; stateText = '不完整'; }
+    var row = q('[data-asr-runtime-row]');
+    if (row) row.setAttribute('data-state', state);
+    var stateEl = q('[data-asr-runtime-state]');
+    if (stateEl) stateEl.textContent = stateText;
+    var btn = q('[data-asr-runtime-install]');
+    if (btn) {
+      btn.disabled = !!(result && result.running);
+      btn.textContent = result && result.ok ? '重新安装转写环境' : '安装转写环境';
+    }
   }
 
   function refreshAsrRuntime() {
