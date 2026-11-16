@@ -11,15 +11,19 @@
 from __future__ import annotations
 
 import importlib.util
+import html as html_mod
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable
 
@@ -1121,9 +1125,13 @@ def missing_packages() -> list[str]:
 # 这些包体积大、和主后端无关，单独装到 AI/asr-python，不混进 后端/libs。
 
 ASR_TORCH_FIND_LINKS = "https://mirrors.aliyun.com/pytorch-wheels/cu128/"
+ASR_WHEELS_DIR = paths.CACHE_DIR / "asr-wheels"
 _ASR_IMPORT_PROBE = "import torch, torchaudio, qwen_asr, pyannote.audio"
 _ASR_STATUS_CACHE: dict[str, Any] = {"at": 0.0, "data": None}
 ASR_STATUS_TTL = 60.0
+
+# 同时下几个 wheel。每个 wheel 内部再开 4 条分片连接，总连接数控制在 12 左右。
+ASR_WHEEL_WORKERS = 3
 
 
 def _asr_requirements() -> Path:
@@ -1178,8 +1186,299 @@ def _write_asr_pth() -> str:
     return ""
 
 
+def _pip_env() -> dict[str, str]:
+    env = dict(os.environ)
+    env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    return env
+
+
+def _pip_stream(args: list[str], timeout: float = 1800,
+                on_line: Callable[[str], None] | None = None) -> int:
+    """跑 pip 并把输出逐行转到运行日志（之前是整段吞掉，用户看不到任何进度）。"""
+    try:
+        child = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            env=_pip_env(),
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError as exc:
+        hub.warn(f"启动 pip 失败：{exc}")
+        return 1
+
+    started = time.time()
+    watchdog = threading.Timer(timeout, child.kill)
+    watchdog.daemon = True
+    watchdog.start()
+    assert child.stdout is not None
+    try:
+        for line in child.stdout:
+            line = line.strip()
+            if line:
+                hub.debug(f"[pip] {line}")
+                if on_line:
+                    try:
+                        on_line(line)
+                    except Exception:               # noqa: BLE001 - 回调不能影响安装
+                        pass
+        return child.wait()
+    finally:
+        watchdog.cancel()
+        if time.time() - started > timeout:
+            hub.warn("pip 执行超时，已终止")
+
+
+def _pinned_versions(requirements: Path) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    try:
+        lines = requirements.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return pins
+    for line in lines:
+        line = line.split("#", 1)[0].strip()
+        match = re.match(r"^([A-Za-z0-9_.-]+)\s*==\s*([^\s;,]+)$", line)
+        if match:
+            pins[match.group(1).lower()] = match.group(2)
+    return pins
+
+
+def _torch_wheel_items(requirements: Path) -> list[dict[str, str]]:
+    """从 PyTorch 镜像目录里找出 torch / torchaudio 的 CUDA wheel 地址。
+
+    pip 在 `--find-links` 下解析版本时，必须先把整个 wheel 下载下来才能读元数据；
+    torch 有 2.4 GB，这一步会把「快速并发下载」变成一次单连接慢速下载。所以这里
+    直接按解释器标签挑文件名，自己下载。
+    """
+    pins = _pinned_versions(requirements)
+    needed = {name: pins[name] for name in ("torch", "torchaudio") if name in pins}
+    if not needed:
+        return []
+
+    import httpx
+
+    try:
+        resp = httpx.get(ASR_TORCH_FIND_LINKS, timeout=60, follow_redirects=True)
+        resp.raise_for_status()
+        page = resp.text
+    except Exception as exc:                        # noqa: BLE001
+        hub.debug(f"读取 PyTorch 镜像目录失败：{exc}")
+        return []
+
+    py_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
+    hrefs = re.findall(r'href="([^"]+\.whl)"', page)
+    items: list[dict[str, str]] = []
+    for name, version in needed.items():
+        base = version.split("+", 1)[0]
+        candidates = []
+        for href in hrefs:
+            filename = html_mod.unescape(href).rsplit("/", 1)[-1]
+            low = filename.lower()
+            if not low.startswith(f"{name}-{base}"):
+                continue
+            if "cu128" not in low or "win_amd64" not in low:
+                continue
+            # 优先当前解释器标签（cp312-cp312），其次 abi3
+            if f"-{py_tag}-{py_tag}-" in low:
+                rank = 2
+            elif "abi3" in low:
+                rank = 1
+            else:
+                continue
+            candidates.append((rank, filename))
+        if candidates:
+            candidates.sort(key=lambda pair: -pair[0])
+            filename = candidates[0][1]
+            url = urllib.parse.urljoin(ASR_TORCH_FIND_LINKS,
+                                       urllib.parse.quote(filename))
+            items.append({"name": name, "version": version,
+                          "file": filename, "url": url})
+    return items
+
+
+def _dir_size(path: Path) -> int:
+    total = 0
+    try:
+        for item in path.rglob("*"):
+            if item.is_file():
+                try:
+                    total += item.stat().st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return total
+
+
+def _pip_download_rest(requirements: Path, index: str, host: str) -> int:
+    """把剩下的小依赖（qwen-asr / pyannote / fastapi 等）下到本地 wheel 目录。
+
+    torch 已经在本地，pip 会直接复用，不会再下 2.4 GB。下载期间按磁盘增长量
+    推送进度（这些包通常只有几百 MB）。
+    """
+    ASR_WHEELS_DIR.mkdir(parents=True, exist_ok=True)
+    baseline = _dir_size(ASR_WHEELS_DIR)
+    expected = {"size": 0}
+    size_re = re.compile(r"\((\d+(?:\.\d+)?)\s*(kB|KB|MB|GB)\)")
+
+    def on_line(line: str) -> None:
+        found = size_re.search(line)
+        if not found:
+            return
+        value = float(found.group(1))
+        unit = found.group(2).lower()
+        factor = {"kb": 1024, "mb": 1024 ** 2, "gb": 1024 ** 3}[unit]
+        expected["size"] += int(value * factor)
+
+    args = [
+        sys.executable, "-m", "pip", "download",
+        "--dest", str(ASR_WHEELS_DIR), "--only-binary=:all:",
+        "--find-links", str(ASR_WHEELS_DIR),
+        "--find-links", ASR_TORCH_FIND_LINKS,
+        "-i", index, "--timeout", "120", "--retries", "10",
+        "-r", str(requirements),
+    ]
+    if host:
+        args += ["--trusted-host", host]
+
+    holder: dict[str, int] = {}
+
+    def work() -> None:
+        holder["code"] = _pip_stream(args, timeout=3600, on_line=on_line)
+
+    worker = threading.Thread(target=work, daemon=True, name="vair-asr-pip-download")
+    worker.start()
+    at = time.time()
+    last = baseline
+    while worker.is_alive():
+        time.sleep(1.0)
+        size = _dir_size(ASR_WHEELS_DIR)
+        now = time.time()
+        speed = (size - last) / max(0.001, now - at)
+        at, last = now, size
+        total = baseline + max(expected["size"], size - baseline, 1)
+        percent = min(99.0, (size - baseline) / max(1, total - baseline) * 100)
+        eta = int((total - size) / speed) if speed > 0 and total > size else 0
+        hub.publish("progress", {
+            "phase": "download", "id": "asr-runtime",
+            "file": "其余依赖", "done": size, "total": total,
+            "percent": round(percent, 1), "speed": int(speed), "eta": eta,
+        })
+    worker.join()
+    return holder.get("code", 1)
+
+
+def _download_asr_wheels(items: list[dict[str, str]]) -> tuple[bool, str]:
+    """并发下载所有 wheel，聚合进度推给前端（百分比 / 速度 / 剩余时间）。"""
+    ASR_WHEELS_DIR.mkdir(parents=True, exist_ok=True)
+    if not items:
+        return False, "没有解析到需要下载的包"
+
+    sizes: dict[str, int] = {}
+    for item in items:
+        dest = ASR_WHEELS_DIR / item["file"]
+        item["dest"] = str(dest)
+        if dest.is_file():
+            sizes[item["file"]] = dest.stat().st_size
+            continue
+        size, _ = _remote_size(item["url"], 30)
+        sizes[item["file"]] = size
+
+    total_all = sum(sizes.values())
+    hub.info(f"待下载 {len(items)} 个组件，共约 {_human_size(total_all)}，"
+             f"{ASR_WHEEL_WORKERS} 个文件并发 + 每个文件 4 路分片…")
+    done_map: dict[str, int] = {key: 0 for key in sizes}
+    for item in items:
+        dest = Path(item["dest"])
+        if dest.is_file():
+            done_map[item["file"]] = dest.stat().st_size
+
+    lock = threading.Lock()
+    state = {"at": time.time(), "done": sum(done_map.values()), "last": 0.0}
+    seen_total = max(total_all, 1)
+    hub.publish("progress", {
+        "phase": "download", "id": "asr-runtime", "file": "准备下载",
+        "done": state["done"], "total": seen_total,
+        "percent": round(state["done"] / seen_total * 100, 1),
+        "speed": 0, "eta": 0,
+    })
+
+    def emit(file_label: str, force: bool = False) -> None:
+        now = time.time()
+        with lock:
+            done = sum(done_map.values())
+            if not force and now - state["at"] < 0.7:
+                return
+            elapsed = max(0.001, now - state["at"])
+            speed = (done - state["done"]) / elapsed
+            state["at"] = now
+            state["done"] = done
+        total = max(total_all, done)
+        percent = round(done / total * 100, 1) if total else 0.0
+        eta = int((total - done) / speed) if speed > 0 and total > done else 0
+        hub.publish("progress", {
+            "phase": "download", "id": "asr-runtime",
+            "file": file_label, "done": done, "total": total,
+            "percent": percent, "speed": int(speed), "eta": eta,
+        })
+
+    def fetch(item: dict[str, str]) -> tuple[bool, str]:
+        key = item["file"]
+
+        def on_progress(p: dict[str, Any]) -> None:
+            with lock:
+                done_map[key] = min(int(p.get("done") or 0), sizes[key] or int(p.get("done") or 0))
+            emit(key)
+
+        ok, message = download_file(
+            item["url"], Path(item["dest"]),
+            expected_size=sizes.get(key, 0), on_progress=on_progress,
+            timeout=120.0,
+            # 单个过 GB 的大 wheel 多开几条连接；小文件保持默认
+            connections=8 if sizes.get(key, 0) > (1 << 30) else 0,
+        )
+        if ok:
+            with lock:
+                done_map[key] = sizes.get(key) or Path(item["dest"]).stat().st_size
+            emit(key, force=True)
+        return ok, message
+
+    # 大的先下：torch 占绝大部分体积，早点开始下载总时长更短
+    ordered = sorted(items, key=lambda it: -sizes.get(it["file"], 0))
+    errors: list[str] = []
+    with ThreadPoolExecutor(max_workers=ASR_WHEEL_WORKERS) as pool:
+        for item, (ok, message) in zip(ordered, pool.map(fetch, ordered)):
+            if not ok:
+                errors.append(f"{item['name'] or item['file']}：{message}")
+    if errors:
+        return False, "；".join(errors[:3])
+    return True, f"已下载 {len(items)} 个 wheel"
+
+
+def _install_asr_from_wheels(requirements: Path) -> int:
+    args = [
+        sys.executable, "-m", "pip", "install",
+        "--target", str(paths.ASR_RUNTIME_DIR), "--upgrade",
+        "--no-index", "--only-binary=:all:",
+        "--find-links", str(ASR_WHEELS_DIR),
+        "-r", str(requirements),
+    ]
+    hub.info("正在把已下载的组件安装到 AI/asr-python…")
+    return _pip_stream(args, timeout=3600)
+
+
 def install_asr_runtime() -> tuple[bool, str]:
-    """安装内置转写运行环境（下载量大，调用方应放到后台线程）。"""
+    """安装内置转写运行环境（下载量大，调用方应放到后台线程）。
+
+    流程：pip 解析出每个 wheel 的地址 → 自己的多连接下载器并发下载（带进度和
+    速度）→ pip 从本地 wheel 离线安装。比直接 `pip install` 单连接快，而且
+    用户能看见到底下到哪了。
+    """
     if not pip_available():
         ok, message = install_pip()
         hub.log("info" if ok else "warn", message)
@@ -1192,22 +1491,38 @@ def install_asr_runtime() -> tuple[bool, str]:
 
     index = os.environ.get("PIP_INDEX_URL") or PIP_PRESETS["tsinghua"]
     host = index.split("//", 1)[-1].split("/", 1)[0]
-    args = [
-        sys.executable, "-m", "pip", "install",
-        "--target", str(paths.ASR_RUNTIME_DIR), "--upgrade",
-        "--timeout", "120", "--retries", "10",
-        "-i", index,
-    ]
-    if host:
-        args += ["--trusted-host", host]
-    # Windows 上 PyPI 的 torch 是 CPU 版，CUDA 必须从这个镜像取。
-    args += ["--find-links", ASR_TORCH_FIND_LINKS, "-r", str(requirements)]
 
-    hub.info("安装内置转写运行环境（torch CUDA 约 3 GB，首次需要一段时间）…")
-    result = run(args, timeout=7200, check=False)
-    if result.returncode != 0:
-        tail = decode(result.stderr)[-800:]
-        return False, f"转写运行环境安装失败：{tail}"
+    hub.publish("progress", {"phase": "start", "id": "asr-runtime",
+                             "label": "转写运行环境"})
+
+    # 大头（torch / torchaudio，约 3 GB）自己用多连接下载；其余小依赖交给 pip，
+    # 但把本地 wheel 目录同时作为 --find-links，pip 就不会重复下载 torch。
+    torch_items = _torch_wheel_items(requirements)
+    if torch_items:
+        hub.info(f"从 PyTorch 镜像并发下载 {len(torch_items)} 个 CUDA 组件…")
+        ok, message = _download_asr_wheels(torch_items)
+        if not ok:
+            hub.publish("progress", {"phase": "done", "id": "asr-runtime",
+                                     "ok": False, "message": message})
+            return False, f"CUDA 组件下载失败：{message}"
+    else:
+        hub.warn("没能从镜像目录定位 torch wheel，改由 pip 解析下载（可能较慢）")
+
+    code = _pip_download_rest(requirements, index, host)
+    if code != 0:
+        hub.publish("progress", {"phase": "done", "id": "asr-runtime",
+                                 "ok": False, "message": "依赖下载失败"})
+        return False, "其余依赖下载失败，详见运行日志里的 pip 输出"
+
+    hub.publish("progress", {"phase": "download", "id": "asr-runtime",
+                             "file": "正在安装", "percent": 99.5, "speed": 0, "eta": 0})
+    code = _install_asr_from_wheels(requirements)
+    hub.publish("progress", {"phase": "done", "id": "asr-runtime",
+                             "ok": code == 0,
+                             "message": "安装完成" if code == 0 else "安装失败"})
+
+    if code != 0:
+        return False, "转写运行环境安装失败，详见运行日志里的 pip 输出"
 
     note = _write_asr_pth()
     if note:

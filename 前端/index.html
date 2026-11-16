@@ -210,6 +210,18 @@
               </button>
             </div>
             <p class="dropzone__formats">MP4 · MOV · MKV · AVI · WebM　/　单次最多 200 个文件</p>
+            <div class="drop-fallback" data-drop-fallback hidden>
+              <p class="drop-fallback__text"><strong>Chrome / Edge 不会把拖入文件的绝对路径交给网页</strong>（浏览器安全限制）。
+                在资源管理器里选中文件，按 <kbd>Shift</kbd> + 右键 →「复制为路径」，再点「读取剪贴板路径」：
+                也可以直接把路径粘进上面的输入框，或用系统选择器。</p>
+              <div class="drop-fallback__actions">
+                <button class="btn btn--soft btn--sm" type="button" data-drop-clipboard>读取剪贴板路径</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-drop-focus>手动粘贴</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-drop-picker>系统选择器</button>
+                <button class="btn btn--ghost btn--sm" type="button" data-drop-dismiss>知道了</button>
+              </div>
+              <p class="drop-fallback__names" data-drop-names></p>
+            </div>
           </div>
         </div>
 
@@ -1213,7 +1225,7 @@
                 <div class="test-out" data-asr-runtime-out hidden></div>
                 <div class="setting-row">
                   <div class="setting-row__label"><strong>补齐操作</strong><small>下载走镜像站，支持断点续传；大模型约 5 GB，请留出磁盘与时间</small></div>
-                  <div class="setting-row__control">
+                  <div class="setting-row__control setting-row__control--wrap">
                     <button class="btn btn--ghost btn--sm" type="button" data-action="asset-check">检查缺失项</button>
                     <button class="btn btn--ghost btn--sm" type="button" data-action="deps-install">安装 Python 依赖</button>
                     <button class="btn btn--ghost btn--sm" type="button" data-action="asr-runtime-install" data-asr-runtime-install>安装转写环境</button>

@@ -76,6 +76,7 @@
   }
 
   function addPaths(paths) {
+    if (paths && paths.length) hideDropHelp();
     if (!live()) {
       // 演示模式：只把名字挂上去，不假装读了文件
       paths.slice(0, 20).forEach(function (p) {
@@ -520,6 +521,59 @@
     return false;
   }
 
+  /* ---------------- 拖入拿不到路径时的回退 ----------------
+   *
+   * Chrome / Edge 出于安全限制，不会把从资源管理器拖入的文件的绝对路径
+   * 交给网页（text/uri-list 通常是空的）。这里给出三条可操作的替代路径：
+   * 读剪贴板（资源管理器「复制为路径」）、手动粘贴、系统选择器。
+   */
+
+  function showDropHelp(files) {
+    var panel = q('[data-drop-fallback]');
+    if (!panel) return;
+    panel.hidden = false;
+    var names = Array.prototype.map.call(files || [], function (f) { return f.name; });
+    var label = q('[data-drop-names]');
+    if (label) {
+      label.textContent = names.length
+        ? '你拖入了 ' + names.length + ' 个文件：' + names.slice(0, 3).join('、')
+          + (names.length > 3 ? ' 等' : '')
+        : '';
+    }
+    var input = q('#pathInput');
+    if (input) input.focus();
+  }
+
+  function hideDropHelp() {
+    var panel = q('[data-drop-fallback]');
+    if (panel) panel.hidden = true;
+  }
+
+  function clipboardPaths(text) {
+    return String(text || '').split(/\r?\n/).map(function (line) {
+      return line.trim().replace(/^"|"$/g, '');
+    }).filter(Boolean);
+  }
+
+  function readClipboardPaths() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      V.toast('剪贴板不可用', '请把路径手动粘贴到输入框。', 'warn');
+      return;
+    }
+    navigator.clipboard.readText().then(function (text) {
+      var paths = clipboardPaths(text);
+      if (!paths.length) {
+        V.toast('剪贴板里没有路径', '先在资源管理器里选中文件，Shift+右键 →「复制为路径」。', 'warn');
+        return;
+      }
+      rememberDirs(paths);
+      addPaths(paths);
+      hideDropHelp();
+    }).catch(function () {
+      V.toast('读不到剪贴板', '浏览器需要剪贴板授权；也可以手动粘贴路径。', 'warn');
+    });
+  }
+
   /* ---------------- 接线 ---------------- */
 
   function init() {
@@ -555,12 +609,20 @@
       if (live()) {
         // 先试真实路径（Chromium 会把资源管理器的 file:// 放进 text/uri-list）
         if (handleDrop(e)) return;
-        V.toast('请用「选择视频」按钮', '浏览器这次没把拖入文件的真实路径交出来，'
-          + '系统文件对话框才能可靠地把路径交给后端。', 'warn');
+        showDropHelp(files);
+        V.toast('浏览器没交出文件路径', '用下方的「读取剪贴板路径」或系统选择器。', 'warn');
         return;
       }
       addSamples(3);
     });
+
+    V.on(q('[data-drop-clipboard]'), 'click', readClipboardPaths);
+    V.on(q('[data-drop-focus]'), 'click', function () {
+      var input = q('#pathInput');
+      if (input) input.focus();
+    });
+    V.on(q('[data-drop-picker]'), 'click', pickFiles);
+    V.on(q('[data-drop-dismiss]'), 'click', hideDropHelp);
 
     V.on(q('[data-pick-files]'), 'click', pickFiles);
     V.on(q('[data-pick-folder]'), 'click', pickFolder);

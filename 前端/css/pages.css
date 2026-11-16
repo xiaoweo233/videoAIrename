@@ -2057,6 +2057,57 @@
   justify-content: stretch;
 }
 
+/* 拖入文件但浏览器没交出路径时的回退面板 */
+.drop-fallback {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.06);
+  text-align: left;
+}
+
+.drop-fallback__text {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.drop-fallback__text kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+.drop-fallback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.drop-fallback__names {
+  margin: 8px 0 0;
+  color: var(--text-4);
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+/* 一行放不下时允许换行，避免按钮互相压住 */
+.setting-row__control--wrap {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.setting-row__control--wrap .btn {
+  white-space: nowrap;
+}
+
 .setting-row__control--wide .input {
   flex: 1;
 }

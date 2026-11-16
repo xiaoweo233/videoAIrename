@@ -754,6 +754,7 @@
     var label = q('[data-dl-label]');
     var percent = q('[data-dl-percent]');
     var fill = q('[data-dl-fill]');
+    var isAsr = p.id === 'asr-runtime';
 
     if (p.phase === 'all-done' || p.phase === 'install-done') {
       if (bar) bar.hidden = true;
@@ -763,6 +764,22 @@
         checkAssets();
         toast('补齐流程结束', '可以点「检查缺失项」确认结果。', 'success');
       }
+      return;
+    }
+
+    // 转写运行环境结束：收起进度条并刷新状态行
+    if (isAsr && p.phase === 'done') {
+      if (bar) bar.hidden = true;
+      if (label) label.textContent = '';
+      refreshAsrRuntime();
+      return;
+    }
+
+    if (isAsr && p.phase === 'start') {
+      if (bar) bar.hidden = false;
+      if (label) label.textContent = '转写运行环境 · 正在解析依赖…';
+      if (percent) percent.textContent = '0%';
+      if (fill) fill.style.width = '0%';
       return;
     }
 
@@ -785,12 +802,20 @@
     if (p.phase === 'download') {
       var pct = typeof p.percent === 'number' ? p.percent : 0;
       if (label) {
-        label.textContent = (p.file || '下载中')
+        label.textContent = (isAsr ? '转写运行环境 · ' : '')
+          + (p.file || '下载中')
           + (p.speed ? ' · ' + humanSize(p.speed) + '/s' : '')
-          + (p.eta ? ' · 剩余约 ' + Math.round(p.eta / 60) + ' 分' : '');
+          + (p.eta ? ' · 剩余约 ' + (p.eta >= 120 ? Math.round(p.eta / 60) + ' 分'
+            : Math.round(p.eta) + ' 秒') : '');
       }
       if (percent) percent.textContent = pct.toFixed(1) + '%';
       if (fill) fill.style.width = Math.min(100, pct) + '%';
+
+      if (isAsr) {
+        var stateEl2 = q('[data-asr-runtime-state]');
+        if (stateEl2) stateEl2.textContent = pct.toFixed(0) + '%';
+        return;
+      }
 
       var row = V.$('[data-asset="' + p.id + '"]');
       if (row) {
@@ -1129,11 +1154,20 @@
   function installAsrRuntime() {
     var client = api();
     if (!client || !client.isLive()) { offlineNotice(); return; }
-    setOut('[data-asr-runtime-out]', 'info', '正在开始安装，约 3 GB，请留意下方日志…');
+    setOut('[data-asr-runtime-out]', 'info', '正在开始安装，约 3 GB，请留意下方进度与日志…');
+    var bar = q('[data-dl-bar]');
+    if (bar) bar.hidden = false;
+    var label = q('[data-dl-label]');
+    if (label) label.textContent = '转写运行环境 · 正在解析依赖…';
+    var percent = q('[data-dl-percent]');
+    if (percent) percent.textContent = '0%';
+    var fill = q('[data-dl-fill]');
+    if (fill) fill.style.width = '0%';
     client.installAsrRuntime().then(function (result) {
       setOut('[data-asr-runtime-out]', result.ok ? 'info' : 'bad', result.message || '');
       setTimeout(refreshAsrRuntime, 3000);
     }).catch(function (err) {
+      if (bar) bar.hidden = true;
       setOut('[data-asr-runtime-out]', 'bad', '启动安装失败：' + client.errorText(err));
     });
   }

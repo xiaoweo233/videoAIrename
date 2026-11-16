@@ -342,7 +342,7 @@ def asr_runtime_install() -> dict[str, Any]:
                 _asr_runtime_running = False
 
     threading.Thread(target=worker, daemon=True, name="vair-asr-runtime").start()
-    return {"ok": True, "message": "已开始安装内置转写运行环境（约 3 GB，请留意日志）"}
+    return {"ok": True, "message": "已开始安装内置转写运行环境（约 3 GB，进度与速度会实时显示）"}
 
 
 # ---------------------------------------------------------------- AI 服务
